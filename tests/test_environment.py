@@ -52,5 +52,15 @@ def test_environment_observation_does_not_expose_future_minute_bars():
     obs = env.reset()
 
     assert len(obs["minute_bars"]) == 1
-    assert obs["daily_bars"].iloc[-1]["high"] == 101.0
+    assert obs["daily_bars"]["date"].dt.date.max() == date(2026, 6, 23)
+    assert obs["daily_bars"].iloc[-1]["high"] == 105.0
     assert obs["daily_bars"].iloc[-1]["close"] == 100.0
+
+
+def test_environment_does_not_substitute_current_day_when_no_prior_daily_bars():
+    daily = _daily_bars()[_daily_bars()["date"].dt.date >= date(2026, 6, 24)]
+    env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), daily, order_quantity=1)
+    obs = env.reset()
+
+    assert obs["daily_bars"].empty
+    assert obs["indicators"]["daily_ma_5"] is None

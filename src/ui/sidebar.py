@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import streamlit as st
 
-from src.config import DEFAULT_DATE, DEFAULT_INITIAL_CASH, DEFAULT_ORDER_QUANTITY, DEFAULT_SYMBOL
+from src.config import DEFAULT_INITIAL_CASH, DEFAULT_ORDER_QUANTITY, DEFAULT_SYMBOL, default_trading_date
 
 
 def render_sidebar() -> dict:
     st.sidebar.header("設定")
     symbol = st.sidebar.text_input("銘柄コード", value=DEFAULT_SYMBOL).strip().upper() or DEFAULT_SYMBOL
-    trading_date = st.sidebar.date_input("日付", value=datetime.strptime(DEFAULT_DATE, "%Y-%m-%d").date())
+    trading_date = st.sidebar.date_input("日付", value=default_trading_date())
     data_source_label = st.sidebar.radio("データ", ["実データ（Yahooファイナンス）", "サンプル"], index=0)
     refresh_data = st.sidebar.button("実データを再取得", width="stretch")
     speed_labels = {

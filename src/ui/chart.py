@@ -114,7 +114,7 @@ def minute_chart(
 
     _add_trade_markers(fig, visible_minute, obs.get("fills", []))
 
-    previous = _previous_daily(daily)
+    previous = _latest_known_daily(daily)
     if previous is not None:
         for column, label in [("high", "前日高値"), ("low", "前日安値"), ("close", "前日終値")]:
             fig.add_hline(y=float(previous[column]), line_width=1, line_dash="dash", annotation_text=label, row=1, col=1)
@@ -211,6 +211,57 @@ def daily_chart(
     return fig
 
 
+def neckline_selection_chart(obs: dict, show: dict[str, bool], necklines: list[dict] | None = None) -> go.Figure:
+    necklines = necklines or []
+    fig = daily_chart(obs, show, "日足", necklines)
+    daily = long_term_chart_frame(obs["daily_bars"], "日足")
+    y_range = _price_axis_range(
+        daily,
+        {"daily_ma": show.get("daily_ma", False), "bollinger": show.get("bollinger", False)},
+        [line["price"] for line in necklines],
+    )
+    if y_range is None:
+        return fig
+
+    selector_frame = daily.tail(min(len(daily), 120))
+    low, high = float(y_range[0]), float(y_range[1])
+    steps = 240
+    price_grid = [low + ((high - low) * index / steps) for index in range(steps + 1)]
+    x_values = []
+    y_values = []
+    customdata = []
+    for date_value in selector_frame["date"]:
+        for price in price_grid:
+            x_values.append(date_value)
+            y_values.append(price)
+            customdata.append([price])
+
+    fig.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=y_values,
+            customdata=customdata,
+            mode="markers",
+            marker=dict(size=14, color="rgba(17, 24, 39, 0.001)"),
+            hovertemplate="選択価格 %{y:,.1f}円<extra></extra>",
+            name="価格選択",
+            showlegend=False,
+            selected=dict(marker=dict(color="rgba(17, 24, 39, 0.001)")),
+            unselected=dict(marker=dict(opacity=0.001)),
+        )
+    )
+    fig.update_layout(clickmode="event+select", dragmode="pan", hovermode="closest")
+    fig.update_yaxes(
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikedash="dash",
+        spikecolor="#111827",
+        spikethickness=1,
+    )
+    return fig
+
+
 def intraday_interval_minutes(chart_type: str) -> int:
     if chart_type not in INTRADAY_INTERVALS:
         raise ValueError(f"未対応の分足です: {chart_type}")
@@ -262,10 +313,10 @@ def long_term_chart_frame(daily: pd.DataFrame, chart_type: str) -> pd.DataFrame:
     return _higher_timeframe_bars(daily, chart_type)
 
 
-def _previous_daily(daily: pd.DataFrame) -> pd.Series | None:
-    if len(daily) < 2:
+def _latest_known_daily(daily: pd.DataFrame) -> pd.Series | None:
+    if daily.empty:
         return None
-    return daily.iloc[-2]
+    return daily.iloc[-1]
 
 
 def _visible_minute_bars(

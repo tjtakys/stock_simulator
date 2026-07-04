@@ -95,7 +95,7 @@ class TradingEnvironment:
         minute = state["minute_bars"]
         daily = state["daily_bars"]
         latest = minute.iloc[-1]
-        latest_daily = daily.iloc[-1]
+        latest_daily = daily.iloc[-1] if not daily.empty else pd.Series(dtype="float64")
         account = self.broker.get_account(state["current_price"])
         return {
             "symbol": self.symbol,

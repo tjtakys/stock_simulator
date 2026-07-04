@@ -1,3 +1,5 @@
+import csv
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
@@ -19,6 +21,39 @@ DEFAULT_SYMBOL_NAME = SYMBOL_NAMES[DEFAULT_SYMBOL]
 DEFAULT_DATE = "2026-06-24"
 DEFAULT_INITIAL_CASH = 10_000_000.0
 DEFAULT_ORDER_QUANTITY = 100
+
+
+def default_trading_date() -> date:
+    cached_date = latest_cached_yahoo_daily_date(DEFAULT_SYMBOL)
+    if cached_date is not None:
+        return cached_date
+    return _previous_weekday(date.today())
+
+
+def latest_cached_yahoo_daily_date(symbol: str) -> date | None:
+    path = RAW_DATA_DIR / "yahoo" / "daily" / f"{symbol.upper()}_daily.csv"
+    if not path.exists():
+        return None
+
+    latest: date | None = None
+    try:
+        with path.open(newline="", encoding="utf-8") as csv_file:
+            for row in csv.DictReader(csv_file):
+                value = row.get("date")
+                if not value:
+                    continue
+                parsed = datetime.fromisoformat(value).date()
+                latest = parsed if latest is None else max(latest, parsed)
+    except (OSError, ValueError):
+        return None
+    return latest
+
+
+def _previous_weekday(value: date) -> date:
+    current = value
+    while current.weekday() >= 5:
+        current -= timedelta(days=1)
+    return current
 
 
 def symbol_display_name(symbol: str) -> str:

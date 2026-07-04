@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.ui.chart import intraday_chart_frame, long_term_chart_frame
+from src.ui.chart import intraday_chart_frame, long_term_chart_frame, neckline_selection_chart
 
 
 def test_intraday_chart_frame_resamples_to_five_minutes():
@@ -49,3 +49,27 @@ def test_long_term_chart_frame_adds_bollinger_to_daily():
     result = long_term_chart_frame(daily, "日足")
 
     assert {"ma_5", "ma_25", "ma_75", "bb_upper_1", "bb_lower_3"} <= set(result.columns)
+
+
+def test_neckline_selection_chart_adds_clickable_price_layer():
+    daily = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-06-01", periods=25, freq="B"),
+            "open": range(100, 125),
+            "high": range(101, 126),
+            "low": range(99, 124),
+            "close": range(100, 125),
+            "volume": [1000] * 25,
+            "daily_ma_5": range(100, 125),
+            "daily_ma_25": range(100, 125),
+            "daily_ma_75": range(100, 125),
+        }
+    )
+
+    fig = neckline_selection_chart({"daily_bars": daily}, {"daily_ma": True, "bollinger": False}, [])
+
+    selector = fig.data[-1]
+    assert selector.name == "価格選択"
+    assert selector.customdata[0][0] is not None
+    assert fig.layout.clickmode == "event+select"
+    assert fig.layout.yaxis.showspikes

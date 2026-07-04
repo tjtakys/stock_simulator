@@ -56,9 +56,7 @@ class ReplayEngine:
         daily = self.base_daily_bars.copy()
         daily_dates = pd.to_datetime(daily["date"]).dt.date
         past_daily = daily[daily_dates < self.trading_date].copy()
-        current_daily = self.current_day_bar()
-        combined = pd.concat([past_daily, current_daily], ignore_index=True)
-        return add_daily_indicators(combined)
+        return add_daily_indicators(past_daily.reset_index(drop=True))
 
     def current_state(self) -> dict:
         bar = self.current_bar()
