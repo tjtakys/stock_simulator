@@ -1,0 +1,17 @@
+pandas
+numpy
+matplotlib
+plotly
+streamlit
+pyarrow
+pydantic
+scipy
+scikit-learn
+ta
+tqdm
+loguru
+pytest
+black
+ruff
+mypy
+yfinance

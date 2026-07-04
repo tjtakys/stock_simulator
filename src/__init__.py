@@ -1,0 +1,2 @@
+"""Daytrade simulator package."""
+
