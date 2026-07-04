@@ -32,6 +32,8 @@ def _speed_interval_seconds(speed: str) -> float | None:
         "10x": 6.0,
         "30x": 2.0,
         "60x": 1.0,
+        "120x": 0.5,
+        "240x": 0.25,
     }[speed]
 
 
@@ -258,7 +260,57 @@ def _render_auto_trade_status(inputs: dict) -> None:
     if not inputs.get("auto_trade"):
         return
     action_text = st.session_state.get("last_auto_action", "待機")
-    st.info(f"自動売買: {_strategy_display_name(inputs['auto_strategy'])} / 直近判断: {action_text}")
+    mode_text = " / 一括検証モードON" if inputs.get("batch_mode") else ""
+    st.info(f"自動売買: {_strategy_display_name(inputs['auto_strategy'])} / 直近判断: {action_text}{mode_text}")
+
+
+def _run_to_end(env: TradingEnvironment, inputs: dict) -> dict:
+    steps = 0
+    fills_before = len(env.broker.fills)
+    trades_before = len(env.broker.trades)
+    started_at = env._observation()["timestamp"]
+    info = {}
+    executed_action: Action = Action.HOLD
+    while not env.done:
+        executed_action = _auto_trade_action(inputs, env._observation())
+        _remember_auto_action(executed_action)
+        _, _, _, info = env.step(executed_action, inputs["quantity"])
+        steps += 1
+
+    obs = env._observation()
+    account = info.get("account") or env.broker.get_account(obs["current_price"])
+    new_trades = env.broker.trades[trades_before:]
+    wins = sum(1 for trade in new_trades if trade.pnl > 0)
+    trade_count = len(new_trades)
+    st.session_state.batch_result = {
+        "strategy": _strategy_display_name(inputs["auto_strategy"]) if inputs.get("auto_trade") else "自動売買なし",
+        "started_at": started_at,
+        "ended_at": obs["timestamp"],
+        "steps": steps,
+        "fills": len(env.broker.fills) - fills_before,
+        "trades": trade_count,
+        "win_rate": (wins / trade_count * 100) if trade_count else 0.0,
+        "total_pnl": account["realized_pnl"] + account["unrealized_pnl"],
+        "executed_action": executed_action,
+        "last_info": info,
+    }
+    return obs
+
+
+def _render_batch_result() -> None:
+    result = st.session_state.get("batch_result")
+    if not result:
+        return
+    st.success(
+        "一括検証完了: "
+        f"{result['strategy']} / "
+        f"{result['started_at'].strftime('%H:%M')}から{result['ended_at'].strftime('%H:%M')}まで / "
+        f"{result['steps']:,}分実行 / "
+        f"約定{result['fills']:,}件 / "
+        f"トレード{result['trades']:,}件 / "
+        f"勝率{result['win_rate']:.1f}% / "
+        f"損益 {_yen(result['total_pnl'], 0)}"
+    )
 
 
 def _render_order_event() -> None:
@@ -392,7 +444,11 @@ def main() -> None:
 
     action = render_action_buttons(st.session_state.is_playing)
     _render_auto_trade_status(inputs)
+    if inputs.get("batch_run") or (action == "PLAY" and inputs.get("batch_mode")):
+        action = "RUN_TO_END"
+
     if action == "PLAY":
+        st.session_state.batch_result = None
         st.session_state.is_playing = True
         st.rerun()
     elif action == "PAUSE":
@@ -402,23 +458,24 @@ def main() -> None:
         st.session_state.is_playing = False
         st.session_state.last_order_event = None
         st.session_state.last_auto_action = None
+        st.session_state.batch_result = None
         obs = env.reset()
     elif action == "STEP_BACK":
         st.session_state.is_playing = False
         st.session_state.last_order_event = None
         st.session_state.last_auto_action = None
+        st.session_state.batch_result = None
         obs = env.retreat()
     elif action == "RUN_TO_END":
         st.session_state.is_playing = False
         st.session_state.last_auto_action = None
-        info = {}
-        executed_action: Action = Action.HOLD
-        while not env.done:
-            executed_action = _auto_trade_action(inputs, env._observation())
-            _remember_auto_action(executed_action)
-            obs, _, _, info = env.step(executed_action, inputs["quantity"])
-        _remember_order_event(executed_action if inputs.get("auto_trade") else action, info)
+        obs = _run_to_end(env, inputs)
+        result = st.session_state.get("batch_result", {})
+        last_info = result.get("last_info", {})
+        executed_action = result.get("executed_action", Action.HOLD)
+        _remember_order_event(executed_action if inputs.get("auto_trade") else action, last_info)
     elif action is not None:
+        st.session_state.batch_result = None
         executed_action = _auto_trade_action(inputs, obs) if inputs.get("auto_trade") and action == Action.HOLD else action
         if inputs.get("auto_trade") and action == Action.HOLD:
             _remember_auto_action(executed_action)
@@ -428,6 +485,7 @@ def main() -> None:
         obs = env._observation()
 
     _render_order_event()
+    _render_batch_result()
 
     top = st.columns(6)
     display_name = symbol_display_name(inputs["symbol"])

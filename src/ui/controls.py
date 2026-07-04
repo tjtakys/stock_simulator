@@ -14,7 +14,11 @@ def render_action_buttons(is_playing: bool = False) -> Action | str | None:
     step_clicked = step_col.button("1分進める", width="stretch")
     play_clicked = play_col.button("一時停止" if is_playing else "再生", width="stretch")
     reset_clicked = reset_col.button("リセット", width="stretch")
-    run_clicked = run_col.button("最後まで", width="stretch")
+    run_clicked = run_col.button(
+        "一括検証",
+        width="stretch",
+        help="現在の状態から当日の最後まで即時実行します。",
+    )
 
     if buy_clicked:
         return Action.BUY

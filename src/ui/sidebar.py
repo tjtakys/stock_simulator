@@ -17,6 +17,8 @@ def render_sidebar() -> dict:
         "10x": "10倍速",
         "30x": "30倍速",
         "60x": "60倍速",
+        "120x": "120倍速",
+        "240x": "240倍速",
     }
     speed = st.sidebar.selectbox(
         "再生速度",
@@ -48,6 +50,18 @@ def render_sidebar() -> dict:
         format_func=lambda value: strategy_labels[value],
         disabled=not auto_trade,
     )
+    batch_mode = st.sidebar.checkbox(
+        "一括検証モード",
+        value=False,
+        disabled=not auto_trade,
+        help="再生ボタンで、選択中の自動売買アルゴリズムを当日の最後まで即時実行します。",
+    )
+    batch_run = st.sidebar.button(
+        "一括検証を実行",
+        width="stretch",
+        disabled=not auto_trade,
+        help="倍速再生を待たずに、選択中の自動売買アルゴリズムを当日の最後まで実行します。",
+    )
 
     initial_cash = st.sidebar.number_input(
         "口座入金額",
@@ -69,6 +83,8 @@ def render_sidebar() -> dict:
         "chart_type": chart_type,
         "auto_trade": bool(auto_trade),
         "auto_strategy": auto_strategy,
+        "batch_mode": bool(auto_trade and batch_mode),
+        "batch_run": bool(auto_trade and batch_run),
         "initial_cash": float(initial_cash),
         "quantity": int(quantity),
         "reset": reset,
