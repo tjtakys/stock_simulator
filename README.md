@@ -2,7 +2,9 @@
 
 ブラウザ上で動作する、デイトレード練習とルールベース売買戦略検証のためのローカルアプリです。OpenAI Codex を使って作成しています。
 
-![デモ動画](docs/assets/demo.gif)
+<video src="docs/assets/demo_movie.mov" controls width="960"></video>
+
+[デモ動画を開く](docs/assets/demo_movie.mov)
 
 ## 使い方
 
