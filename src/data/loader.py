@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Literal
 
 import pandas as pd
@@ -117,4 +117,42 @@ def load_market_data(
         data_source=data_source,
         force_refresh=force_refresh,
     )
+    minute = _pad_market_open(minute, daily, _as_date(trading_date))
     return minute, daily
+
+
+def _pad_market_open(minute: pd.DataFrame, daily: pd.DataFrame, trading_date: date) -> pd.DataFrame:
+    if minute.empty:
+        return minute
+
+    result = minute.copy().sort_values("timestamp").reset_index(drop=True)
+    first_timestamp = pd.Timestamp(result.iloc[0]["timestamp"])
+    market_open = pd.Timestamp(datetime.combine(trading_date, time(9, 0)))
+    max_padding_end = market_open + timedelta(minutes=30)
+    if first_timestamp <= market_open or first_timestamp > max_padding_end:
+        return result
+
+    opening_price = _opening_price_for_padding(result, daily, trading_date)
+    timestamps = pd.date_range(market_open, first_timestamp - timedelta(minutes=1), freq="min")
+    if timestamps.empty:
+        return result
+
+    padding = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "open": opening_price,
+            "high": opening_price,
+            "low": opening_price,
+            "close": opening_price,
+            "volume": 0,
+        }
+    )
+    return pd.concat([padding, result], ignore_index=True)[MINUTE_COLUMNS]
+
+
+def _opening_price_for_padding(minute: pd.DataFrame, daily: pd.DataFrame, trading_date: date) -> float:
+    daily_dates = pd.to_datetime(daily["date"]).dt.date if "date" in daily else pd.Series(dtype=object)
+    current_daily = daily[daily_dates == trading_date] if not daily.empty else pd.DataFrame()
+    if not current_daily.empty:
+        return float(current_daily.iloc[-1]["open"])
+    return float(minute.iloc[0]["open"])

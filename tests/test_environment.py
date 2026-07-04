@@ -47,6 +47,41 @@ def test_environment_step_executes_action_and_tracks_pnl():
     assert obs["realized_pnl"] == 10.0
 
 
+def test_environment_reset_returns_to_first_timestamp_and_clears_trades():
+    env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), _daily_bars(), order_quantity=1)
+    env.reset()
+    env.step(Action.BUY, quantity=1)
+
+    obs = env.reset()
+
+    assert obs["timestamp"] == pd.Timestamp("2026-06-24 09:00:00")
+    assert obs["position"].is_flat
+    assert obs["fills"] == []
+    assert obs["trades"] == []
+
+
+def test_environment_retreat_returns_to_previous_timestamp():
+    env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), _daily_bars(), order_quantity=1)
+    env.reset()
+    env.step(Action.HOLD, quantity=1)
+
+    obs = env.retreat()
+
+    assert obs["timestamp"] == pd.Timestamp("2026-06-24 09:00:00")
+
+
+def test_environment_retreat_restores_position_and_fills():
+    env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), _daily_bars(), order_quantity=1)
+    env.reset()
+    env.step(Action.BUY, quantity=1)
+
+    obs = env.retreat()
+
+    assert obs["timestamp"] == pd.Timestamp("2026-06-24 09:00:00")
+    assert obs["position"].is_flat
+    assert obs["fills"] == []
+
+
 def test_environment_observation_does_not_expose_future_minute_bars():
     env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), _daily_bars(), order_quantity=1)
     obs = env.reset()

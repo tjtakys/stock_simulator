@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime
 
 import pandas as pd
@@ -46,17 +47,20 @@ class TradingEnvironment:
         self.force_close_on_end = force_close_on_end
         self.done = False
         self.last_info: dict = {}
+        self._history: list[dict] = []
 
     def reset(self) -> dict:
         self.engine.reset()
         self.broker.reset()
         self.done = False
         self.last_info = {}
+        self._history = []
         return self._observation()
 
     def step(self, action: Action | str, quantity: int | None = None) -> tuple[dict, float, bool, dict]:
         action = Action(action)
         quantity = quantity or self.order_quantity
+        self._history.append(self._snapshot())
         before = self.broker.get_account(self.engine.current_state()["current_price"])["equity"]
 
         state = self.engine.current_state()
@@ -89,6 +93,12 @@ class TradingEnvironment:
         }
         self.last_info = info
         return obs, reward, self.done, info
+
+    def retreat(self) -> dict:
+        if not self._history:
+            return self._observation()
+        self._restore(self._history.pop())
+        return self._observation()
 
     def _observation(self) -> dict:
         state = self.engine.current_state()
@@ -130,6 +140,26 @@ class TradingEnvironment:
             "committed_notional": account["committed_notional"],
             "done": self.done,
         }
+
+    def _snapshot(self) -> dict:
+        return {
+            "engine_index": self.engine.index,
+            "position": deepcopy(self.broker.position),
+            "realized_pnl": self.broker.realized_pnl,
+            "trades": deepcopy(self.broker.trades),
+            "fills": deepcopy(self.broker.fills),
+            "done": self.done,
+            "last_info": deepcopy(self.last_info),
+        }
+
+    def _restore(self, snapshot: dict) -> None:
+        self.engine.index = int(snapshot["engine_index"])
+        self.broker.position = deepcopy(snapshot["position"])
+        self.broker.realized_pnl = float(snapshot["realized_pnl"])
+        self.broker.trades = deepcopy(snapshot["trades"])
+        self.broker.fills = deepcopy(snapshot["fills"])
+        self.done = bool(snapshot["done"])
+        self.last_info = deepcopy(snapshot["last_info"])
 
 
 def _safe_float(value: object) -> float | None:
