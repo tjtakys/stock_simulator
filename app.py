@@ -11,7 +11,7 @@ from src.data.providers.yahoo import RealDataUnavailable, yahoo_symbol
 from src.simulator.environment import TradingEnvironment
 from src.simulator.order import Action
 from src.simulator.position import PositionSide
-from src.ui.chart import daily_chart, minute_chart, neckline_selection_chart
+from src.ui.chart import daily_chart, important_price_line_chart, minute_chart
 from src.ui.controls import render_action_buttons
 from src.ui.neckline_picker import NECKLINE_COLORS, NECKLINE_LABELS
 from src.ui.sidebar import render_sidebar
@@ -34,6 +34,18 @@ def _speed_interval_seconds(speed: str) -> float | None:
     }[speed]
 
 
+def _autoplay_sleep_seconds(env: TradingEnvironment, interval: float) -> float:
+    engine = env.engine
+    if engine.index >= len(engine.minute_bars) - 1:
+        return interval
+    current_timestamp = pd.Timestamp(engine.minute_bars.iloc[engine.index]["timestamp"])
+    next_timestamp = pd.Timestamp(engine.minute_bars.iloc[engine.index + 1]["timestamp"])
+    gap_seconds = (next_timestamp - current_timestamp).total_seconds()
+    if gap_seconds > 30 * 60:
+        return 5.0
+    return interval
+
+
 def _sync_neckline_context(key: tuple, reset: bool = False) -> None:
     if reset or st.session_state.get("neckline_context") != key:
         st.session_state.neckline_context = key
@@ -43,7 +55,7 @@ def _sync_neckline_context(key: tuple, reset: bool = False) -> None:
 
 
 def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
-    st.subheader("日足でネックラインを設定")
+    st.subheader("日足で重要価格ラインを設定")
     st.info("デイトレードを始める前に、日足チャート上で意識したい価格をクリックして水平ラインを追加してください。")
 
     necklines = st.session_state.setdefault("necklines", [])
@@ -55,14 +67,17 @@ def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
     color_name = color_col.selectbox("色", list(NECKLINE_COLORS), index=0)
     color = NECKLINE_COLORS[color_name]
 
-    event = st.plotly_chart(
-        neckline_selection_chart(obs, show, necklines),
-        width="stretch",
-        key="neckline_selection_chart",
-        on_select="rerun",
-        selection_mode="points",
-        config={"displayModeBar": True, "scrollZoom": True},
-    )
+    chart_slot = st.empty()
+    date_range = _render_daily_range_slider(obs)
+    with chart_slot.container():
+        event = st.plotly_chart(
+            important_price_line_chart(obs, show, necklines, date_range),
+            width="stretch",
+            key="neckline_selection_chart",
+            on_select="rerun",
+            selection_mode="points",
+            config={"displayModeBar": True, "scrollZoom": True},
+        )
     selected = _selected_neckline_price(event)
     if selected is not None:
         price, identity = selected
@@ -88,7 +103,7 @@ def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
             hide_index=True,
         )
     else:
-        st.caption("まだネックラインはありません。")
+        st.caption("まだ重要価格ラインはありません。")
 
     delete_col, clear_col, done_col = st.columns(3)
     if delete_col.button("最後のラインを削除", width="stretch", disabled=not bool(necklines)):
@@ -102,6 +117,41 @@ def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
     if done_col.button("完了してデイトレードへ", width="stretch", disabled=not bool(necklines)):
         st.session_state.neckline_setup_done = True
         st.rerun()
+
+
+def _render_daily_range_slider(obs: dict) -> tuple[object, object] | None:
+    daily = obs["daily_bars"]
+    if daily.empty:
+        return None
+
+    dates = pd.to_datetime(daily["date"]).dt.date.reset_index(drop=True)
+    min_index = 0
+    max_index = len(dates) - 1
+    if min_index >= max_index:
+        return (min_index, max_index)
+
+    default_start = max(len(dates) - 60, 0)
+    key = f"daily_line_range_{obs['symbol']}_{obs['date'].isoformat()}"
+    current_value = st.session_state.get(key, (default_start, max_index))
+    if (
+        not isinstance(current_value, tuple)
+        or len(current_value) != 2
+        or not all(isinstance(value, int) for value in current_value)
+    ):
+        current_value = (default_start, max_index)
+
+    slider_col, _ = st.columns([0.84, 0.16])
+    with slider_col:
+        selected = st.select_slider(
+            "日足表示範囲",
+            options=list(range(len(dates))),
+            value=current_value,
+            format_func=lambda index: dates.iloc[int(index)].strftime("%Y-%m-%d"),
+            key=key,
+        )
+    start_index, end_index = int(selected[0]), int(selected[1])
+    st.caption(f"表示中: {dates.iloc[start_index].isoformat()} 〜 {dates.iloc[end_index].isoformat()}")
+    return (start_index, end_index)
 
 
 def _selected_neckline_price(event: dict) -> tuple[float, str] | None:
@@ -240,15 +290,11 @@ def _yen(value: float, decimals: int = 0) -> str:
     return f"{value:,.{decimals}f}円"
 
 
-def _account_rows(obs: dict) -> list[dict[str, str]]:
-    return [
-        {"項目": "評価額", "金額": _yen(obs["equity"], 0)},
-        {"項目": "入金額", "金額": _yen(obs["initial_cash"], 0)},
-        {"項目": "買付余力", "金額": _yen(obs["available_cash"], 0)},
-        {"項目": "建玉金額", "金額": _yen(obs["committed_notional"], 0)},
-        {"項目": "確定損益", "金額": _yen(obs["realized_pnl"], 0)},
-        {"項目": "含み損益", "金額": _yen(obs["unrealized_pnl"], 0)},
-    ]
+def _render_account_summary(obs: dict) -> None:
+    account_cols = st.columns(3)
+    account_cols[0].metric("評価額", _yen(obs["equity"], 0))
+    account_cols[1].metric("買付余力", _yen(obs["available_cash"], 0))
+    account_cols[2].metric("建玉金額", _yen(obs["committed_notional"], 0))
 
 
 def _trades_display(frame: pd.DataFrame) -> pd.DataFrame:
@@ -316,6 +362,14 @@ def main() -> None:
     elif action == "PAUSE":
         st.session_state.is_playing = False
         st.rerun()
+    elif action == "RESET_REPLAY":
+        st.session_state.is_playing = False
+        st.session_state.last_order_event = None
+        obs = env.reset()
+    elif action == "STEP_BACK":
+        st.session_state.is_playing = False
+        st.session_state.last_order_event = None
+        obs = env.retreat()
     elif action == "RUN_TO_END":
         st.session_state.is_playing = False
         info = {}
@@ -360,14 +414,15 @@ def main() -> None:
     detail[0].subheader("ポジション")
     detail[0].write(_position_text(obs))
     detail[1].subheader("口座")
-    detail[1].dataframe(_account_rows(obs), width="stretch", hide_index=True)
+    with detail[1]:
+        _render_account_summary(obs)
 
     st.subheader("トレード履歴")
     st.dataframe(_trades_display(env.broker.trades_frame()), width="stretch", hide_index=True)
 
     interval = _speed_interval_seconds(inputs["speed"])
     if st.session_state.is_playing and interval is not None and not env.done:
-        time.sleep(interval)
+        time.sleep(_autoplay_sleep_seconds(env, interval))
         env.step(Action.HOLD, inputs["quantity"])
         st.rerun()
 

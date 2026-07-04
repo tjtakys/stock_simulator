@@ -45,7 +45,7 @@ def render_sidebar() -> dict:
         step=1_000_000,
     )
     quantity = st.sidebar.number_input("注文株数", min_value=1, max_value=100_000, value=DEFAULT_ORDER_QUANTITY, step=100)
-    reset = st.sidebar.button("リセット", width="stretch")
+    reset = st.sidebar.button("ライン設定からやり直す", width="stretch")
     return {
         "symbol": symbol,
         "trading_date": trading_date,

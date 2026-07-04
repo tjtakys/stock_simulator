@@ -17,6 +17,15 @@ INTRADAY_INTERVALS = {
     "60分足": 60,
 }
 
+BOLLINGER_STYLES = [
+    ("bb_upper_1", "+1σ", "#2563eb"),
+    ("bb_lower_1", "-1σ", "#2563eb"),
+    ("bb_upper_2", "+2σ", "#dc2626"),
+    ("bb_lower_2", "-2σ", "#dc2626"),
+    ("bb_upper_3", "+3σ", "#64748b"),
+    ("bb_lower_3", "-3σ", "#64748b"),
+]
+
 
 def minute_chart(
     obs: dict,
@@ -31,6 +40,8 @@ def minute_chart(
     necklines = necklines or []
     chart_minute = _with_compressed_x(minute, interval_minutes)
     visible_minute, x_range = _visible_minute_bars(chart_minute, display_window, interval_minutes)
+    previous = _latest_known_daily(daily)
+    previous_context_x = _previous_day_context_x(visible_minute, x_range, interval_minutes, previous)
     fig = make_subplots(
         rows=2,
         cols=1,
@@ -38,6 +49,31 @@ def minute_chart(
         vertical_spacing=0.03,
         row_heights=[0.72, 0.28],
     )
+    if previous is not None and previous_context_x is not None:
+        fig.add_trace(
+            go.Candlestick(
+                x=[previous_context_x],
+                open=[float(previous["open"])],
+                high=[float(previous["high"])],
+                low=[float(previous["low"])],
+                close=[float(previous["close"])],
+                customdata=[[pd.Timestamp(previous["date"]).strftime("%Y-%m-%d"), float(previous["volume"])]],
+                hovertemplate=(
+                    "前日 %{customdata[0]}<br>"
+                    "始値 %{open:,.1f}円<br>"
+                    "高値 %{high:,.1f}円<br>"
+                    "安値 %{low:,.1f}円<br>"
+                    "終値 %{close:,.1f}円<br>"
+                    "出来高 %{customdata[1]:,.0f}<extra></extra>"
+                ),
+                name="前日足",
+                opacity=0.45,
+                increasing=dict(line=dict(color="#64748b"), fillcolor="rgba(100, 116, 139, 0.32)"),
+                decreasing=dict(line=dict(color="#64748b"), fillcolor="rgba(100, 116, 139, 0.32)"),
+            ),
+            row=1,
+            col=1,
+        )
     fig.add_trace(
         go.Candlestick(
             x=visible_minute["chart_x"],
@@ -93,20 +129,13 @@ def minute_chart(
             col=1,
         )
     if show.get("bollinger"):
-        for column, label in [
-            ("bb_upper_1", "+1σ"),
-            ("bb_lower_1", "-1σ"),
-            ("bb_upper_2", "+2σ"),
-            ("bb_lower_2", "-2σ"),
-            ("bb_upper_3", "+3σ"),
-            ("bb_lower_3", "-3σ"),
-        ]:
+        for column, label, color in BOLLINGER_STYLES:
             fig.add_trace(
                 go.Scatter(
                     x=visible_minute["chart_x"],
                     y=visible_minute[column],
                     name=f"ボリンジャー {label}",
-                    line=dict(width=0.9, dash="dot"),
+                    line=dict(width=1.0, dash="dot", color=color),
                 ),
                 row=1,
                 col=1,
@@ -114,7 +143,6 @@ def minute_chart(
 
     _add_trade_markers(fig, visible_minute, obs.get("fills", []))
 
-    previous = _latest_known_daily(daily)
     if previous is not None:
         for column, label in [("high", "前日高値"), ("low", "前日安値"), ("close", "前日終値")]:
             fig.add_hline(y=float(previous[column]), line_width=1, line_dash="dash", annotation_text=label, row=1, col=1)
@@ -133,7 +161,9 @@ def minute_chart(
     if tick_values:
         fig.update_xaxes(tickmode="array", tickvals=tick_values, ticktext=tick_text, row=1, col=1)
         fig.update_xaxes(tickmode="array", tickvals=tick_values, ticktext=tick_text, row=2, col=1)
-    y_range = _price_axis_range(visible_minute, show, [line["price"] for line in necklines])
+    y_range = _intraday_price_axis_range(visible_minute, show, [line["price"] for line in necklines])
+    if y_range is not None and previous is not None and previous_context_x is not None:
+        y_range = _expand_price_axis_range(y_range, [float(previous["low"]), float(previous["high"])])
     if y_range is not None:
         fig.update_yaxes(range=y_range, row=1, col=1)
     fig.update_yaxes(title_text="価格", tickformat=",.0f", row=1, col=1)
@@ -150,49 +180,7 @@ def daily_chart(
     necklines = necklines or []
     daily = long_term_chart_frame(obs["daily_bars"], chart_type)
     fig = go.Figure()
-    fig.add_trace(
-        go.Candlestick(
-            x=daily["date"],
-            open=daily["open"],
-            high=daily["high"],
-            low=daily["low"],
-            close=daily["close"],
-            customdata=daily["volume"],
-            hovertemplate=(
-                "%{x|%Y-%m-%d}<br>"
-                "始値 %{open:,.1f}円<br>"
-                "高値 %{high:,.1f}円<br>"
-                "安値 %{low:,.1f}円<br>"
-                "終値 %{close:,.1f}円<br>"
-                "出来高 %{customdata:,.0f}<extra></extra>"
-            ),
-            name=chart_type,
-        )
-    )
-    if show.get("daily_ma"):
-        for column, label in [
-            ("ma_5", f"{chart_type} 移動平均5"),
-            ("ma_25", f"{chart_type} 移動平均25"),
-            ("ma_75", f"{chart_type} 移動平均75"),
-        ]:
-            fig.add_trace(go.Scatter(x=daily["date"], y=daily[column], name=label, line=dict(width=1.3)))
-    if show.get("bollinger"):
-        for column, label in [
-            ("bb_upper_1", "+1σ"),
-            ("bb_lower_1", "-1σ"),
-            ("bb_upper_2", "+2σ"),
-            ("bb_lower_2", "-2σ"),
-            ("bb_upper_3", "+3σ"),
-            ("bb_lower_3", "-3σ"),
-        ]:
-            fig.add_trace(
-                go.Scatter(
-                    x=daily["date"],
-                    y=daily[column],
-                    name=f"{chart_type} ボリンジャー {label}",
-                    line=dict(width=0.9, dash="dot"),
-                )
-            )
+    _add_long_term_price_traces(fig, daily, show, chart_type)
     _add_necklines(fig, necklines)
     fig.update_layout(
         height=620,
@@ -212,25 +200,66 @@ def daily_chart(
 
 
 def neckline_selection_chart(obs: dict, show: dict[str, bool], necklines: list[dict] | None = None) -> go.Figure:
+    return important_price_line_chart(obs, show, necklines)
+
+
+def important_price_line_chart(
+    obs: dict,
+    show: dict[str, bool],
+    necklines: list[dict] | None = None,
+    date_range: tuple[object, object] | None = None,
+) -> go.Figure:
     necklines = necklines or []
-    fig = daily_chart(obs, show, "日足", necklines)
-    daily = long_term_chart_frame(obs["daily_bars"], "日足")
+    daily = _with_daily_axis(long_term_chart_frame(obs["daily_bars"], "日足"))
+    visible_daily = _filter_daily_by_date_range(daily, date_range)
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        shared_yaxes=True,
+        horizontal_spacing=0.02,
+        column_widths=[0.84, 0.16],
+    )
+    _add_long_term_price_traces(fig, visible_daily, show, "日足", row=1, col=1)
     y_range = _price_axis_range(
-        daily,
+        visible_daily,
         {"daily_ma": show.get("daily_ma", False), "bollinger": show.get("bollinger", False)},
         [line["price"] for line in necklines],
     )
     if y_range is None:
         return fig
 
-    selector_frame = daily.tail(min(len(daily), 120))
+    profile = _volume_profile(visible_daily, y_range)
+    if profile is not None:
+        fig.add_trace(
+            go.Bar(
+                x=profile["volumes"],
+                y=profile["prices"],
+                customdata=profile["ranges"],
+                width=profile["bin_size"] * 0.86,
+                orientation="h",
+                name="価格帯別出来高",
+                marker=dict(color="rgba(37, 99, 235, 0.38)", line=dict(color="rgba(37, 99, 235, 0.72)", width=1)),
+                hovertemplate=(
+                    "価格帯 %{customdata[0]:,.1f} - %{customdata[1]:,.1f}円<br>"
+                    "出来高 %{x:,.0f}<extra></extra>"
+                ),
+                showlegend=False,
+            ),
+            row=1,
+            col=2,
+        )
+
+    _add_necklines(fig, necklines, row=1, col=1)
+    _add_necklines(fig, necklines, row=1, col=2, annotate=False)
+
+    selector_frame = visible_daily.tail(min(len(visible_daily), 120))
     low, high = float(y_range[0]), float(y_range[1])
     steps = 240
     price_grid = [low + ((high - low) * index / steps) for index in range(steps + 1)]
     x_values = []
     y_values = []
     customdata = []
-    for date_value in selector_frame["date"]:
+    for date_value in selector_frame["_axis_x"]:
         for price in price_grid:
             x_values.append(date_value)
             y_values.append(price)
@@ -248,9 +277,33 @@ def neckline_selection_chart(obs: dict, show: dict[str, bool], necklines: list[d
             showlegend=False,
             selected=dict(marker=dict(color="rgba(17, 24, 39, 0.001)")),
             unselected=dict(marker=dict(opacity=0.001)),
-        )
+        ),
+        row=1,
+        col=1,
     )
-    fig.update_layout(clickmode="event+select", dragmode="pan", hovermode="closest")
+    fig.update_layout(
+        height=620,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_rangeslider_visible=False,
+        clickmode="event+select",
+        dragmode="pan",
+        hovermode="closest",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+    if not visible_daily.empty:
+        tick_frame = _daily_tick_frame(visible_daily)
+        fig.update_xaxes(
+            range=[float(visible_daily["_axis_x"].min()) - 0.5, float(visible_daily["_axis_x"].max()) + 0.5],
+            tickmode="array",
+            tickvals=tick_frame["_axis_x"],
+            ticktext=tick_frame["_axis_label"],
+            row=1,
+            col=1,
+        )
+    fig.update_xaxes(title_text="価格帯別出来高", tickformat=",d", showgrid=False, row=1, col=2)
+    fig.update_yaxes(range=y_range, title_text="価格", tickformat=",.0f", row=1, col=1)
+    fig.update_yaxes(range=y_range, showticklabels=False, row=1, col=2)
     fig.update_yaxes(
         showspikes=True,
         spikemode="across",
@@ -258,6 +311,8 @@ def neckline_selection_chart(obs: dict, show: dict[str, bool], necklines: list[d
         spikedash="dash",
         spikecolor="#111827",
         spikethickness=1,
+        row=1,
+        col=1,
     )
     return fig
 
@@ -313,10 +368,166 @@ def long_term_chart_frame(daily: pd.DataFrame, chart_type: str) -> pd.DataFrame:
     return _higher_timeframe_bars(daily, chart_type)
 
 
+def _add_long_term_price_traces(
+    fig: go.Figure,
+    daily: pd.DataFrame,
+    show: dict[str, bool],
+    chart_type: str,
+    row: int | None = None,
+    col: int | None = None,
+) -> None:
+    x_values = daily["_axis_x"] if "_axis_x" in daily else daily["date"]
+    date_text = pd.to_datetime(daily["date"]).dt.strftime("%Y-%m-%d")
+    customdata = list(zip(date_text, daily["volume"], strict=True))
+    _add_trace(
+        fig,
+        go.Candlestick(
+            x=x_values,
+            open=daily["open"],
+            high=daily["high"],
+            low=daily["low"],
+            close=daily["close"],
+            customdata=customdata,
+            hovertemplate=(
+                "%{customdata[0]}<br>"
+                "始値 %{open:,.1f}円<br>"
+                "高値 %{high:,.1f}円<br>"
+                "安値 %{low:,.1f}円<br>"
+                "終値 %{close:,.1f}円<br>"
+                "出来高 %{customdata[1]:,.0f}<extra></extra>"
+            ),
+            name=chart_type,
+        ),
+        row,
+        col,
+    )
+    if show.get("daily_ma"):
+        for column, label in [
+            ("ma_5", f"{chart_type} 移動平均5"),
+            ("ma_25", f"{chart_type} 移動平均25"),
+            ("ma_75", f"{chart_type} 移動平均75"),
+        ]:
+            _add_trace(fig, go.Scatter(x=x_values, y=daily[column], name=label, line=dict(width=1.3)), row, col)
+    if show.get("bollinger"):
+        for column, label, color in BOLLINGER_STYLES:
+            _add_trace(
+                fig,
+                go.Scatter(
+                    x=x_values,
+                    y=daily[column],
+                    name=f"{chart_type} ボリンジャー {label}",
+                    line=dict(width=1.0, dash="dot", color=color),
+                ),
+                row,
+                col,
+            )
+
+
+def _add_trace(fig: go.Figure, trace: go.BaseTraceType, row: int | None = None, col: int | None = None) -> None:
+    if row is not None and col is not None:
+        fig.add_trace(trace, row=row, col=col)
+    else:
+        fig.add_trace(trace)
+
+
+def _volume_profile(frame: pd.DataFrame, y_range: list[float], bins: int = 32) -> dict[str, list] | None:
+    if frame.empty or bins <= 0:
+        return None
+
+    low, high = float(y_range[0]), float(y_range[1])
+    if high <= low:
+        return None
+
+    bin_size = (high - low) / bins
+    volumes = [0.0] * bins
+    for row in frame.dropna(subset=["low", "high", "volume"]).itertuples():
+        row_low = max(float(row.low), low)
+        row_high = min(float(row.high), high)
+        volume = float(row.volume)
+        if volume <= 0 or row_high < low or row_low > high:
+            continue
+        if row_high <= row_low:
+            index = min(max(int((row_low - low) / bin_size), 0), bins - 1)
+            volumes[index] += volume
+            continue
+        first = min(max(int((row_low - low) / bin_size), 0), bins - 1)
+        last = min(max(int((row_high - low) / bin_size), 0), bins - 1)
+        share = volume / max(last - first + 1, 1)
+        for index in range(first, last + 1):
+            volumes[index] += share
+
+    if not any(volumes):
+        return None
+
+    prices = [low + (index + 0.5) * bin_size for index in range(bins)]
+    ranges = [[low + index * bin_size, low + (index + 1) * bin_size] for index in range(bins)]
+    return {"prices": prices, "volumes": volumes, "ranges": ranges, "bin_size": bin_size}
+
+
+def _filter_daily_by_date_range(frame: pd.DataFrame, date_range: tuple[object, object] | None) -> pd.DataFrame:
+    if frame.empty or date_range is None or len(date_range) != 2:
+        return frame
+
+    if all(isinstance(value, int) for value in date_range):
+        start, end = sorted((int(date_range[0]), int(date_range[1])))
+        start = max(start, 0)
+        end = min(end, len(frame) - 1)
+        result = frame.iloc[start : end + 1].copy()
+        if result.empty:
+            return frame.tail(min(len(frame), 120)).copy()
+        return result
+
+    start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+    result = frame[(pd.to_datetime(frame["date"]) >= start) & (pd.to_datetime(frame["date"]) <= end)].copy()
+    if result.empty:
+        return frame.tail(min(len(frame), 120)).copy()
+    return result
+
+
+def _with_daily_axis(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy().reset_index(drop=True)
+    result["_axis_x"] = list(range(len(result)))
+    result["_axis_label"] = pd.to_datetime(result["date"]).dt.strftime("%m/%d")
+    return result
+
+
+def _daily_tick_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    stride = max(len(frame) // 8, 1)
+    return frame.iloc[::stride][["_axis_x", "_axis_label"]]
+
+
 def _latest_known_daily(daily: pd.DataFrame) -> pd.Series | None:
     if daily.empty:
         return None
     return daily.iloc[-1]
+
+
+def _previous_day_context_x(
+    visible_minute: pd.DataFrame,
+    x_range: list[float] | None,
+    interval_minutes: int,
+    previous: pd.Series | None,
+) -> float | None:
+    if previous is None or visible_minute.empty:
+        return None
+    if float(visible_minute["chart_x"].min()) > 0:
+        return None
+    if x_range is not None:
+        return float(x_range[0]) + max(float(interval_minutes), 1.0) * 0.8
+    return -max(float(interval_minutes), 1.0)
+
+
+def _expand_price_axis_range(price_range: list[float], prices: list[float]) -> list[float]:
+    values = [float(price_range[0]), float(price_range[1]), *[float(price) for price in prices]]
+    low = min(values)
+    high = max(values)
+    if low == high:
+        padding = max(abs(low) * 0.01, 1.0)
+    else:
+        padding = (high - low) * 0.08
+    return [low - padding, high + padding]
 
 
 def _visible_minute_bars(
@@ -329,9 +540,9 @@ def _visible_minute_bars(
 
     minutes = int(display_window.replace("過去", "").replace("前後", "").replace("分", ""))
     current_x = float(minute["chart_x"].iloc[-1])
-    min_x = float(minute["chart_x"].min())
-    start_x = max(min_x, current_x - minutes)
-    end_x = current_x if current_x > start_x else current_x + max(float(interval_minutes), 1.0)
+    right_padding = round(max(float(interval_minutes) * 2.0, float(minutes) * 0.12), 6)
+    start_x = current_x - minutes
+    end_x = current_x + right_padding
     visible = minute[(minute["chart_x"] >= start_x) & (minute["chart_x"] <= current_x)].copy()
     if visible.empty:
         visible = minute.tail(1).copy()
@@ -384,10 +595,8 @@ def _with_compressed_x(minute: pd.DataFrame, interval_minutes: int) -> pd.DataFr
     timestamps = pd.to_datetime(result.get("period_start", result["timestamp"]))
     positions = [0.0]
     for previous, current in zip(timestamps.iloc[:-1], timestamps.iloc[1:]):
-        gap_minutes = max((current - previous).total_seconds() / 60.0, 1.0)
         expected_step = max(float(interval_minutes), 1.0)
-        step = expected_step + 6.0 if gap_minutes > max(expected_step * 1.5, 5.0) else expected_step
-        positions.append(positions[-1] + step)
+        positions.append(positions[-1] + expected_step)
     result["chart_x"] = positions
     return result
 
@@ -466,19 +675,26 @@ def _add_trade_markers(fig: go.Figure, visible_minute: pd.DataFrame, fills: list
         )
 
 
-def _add_necklines(fig: go.Figure, necklines: list[dict], row: int | None = None, col: int | None = None) -> None:
+def _add_necklines(
+    fig: go.Figure,
+    necklines: list[dict],
+    row: int | None = None,
+    col: int | None = None,
+    annotate: bool = True,
+) -> None:
     for line in necklines:
         price = float(line["price"])
-        label = str(line.get("label") or "ネックライン")
+        label = str(line.get("label") or "重要価格ライン")
         color = str(line.get("color") or "#7c3aed")
         kwargs = {
             "y": price,
             "line_width": 2,
             "line_dash": "dash",
             "line_color": color,
-            "annotation_text": f"{label} {price:,.1f}円",
-            "annotation_position": "top right",
         }
+        if annotate:
+            kwargs["annotation_text"] = f"{label} {price:,.1f}円"
+            kwargs["annotation_position"] = "top right"
         if row is not None and col is not None:
             kwargs["row"] = row
             kwargs["col"] = col
@@ -514,3 +730,56 @@ def _price_axis_range(frame: pd.DataFrame, show: dict[str, bool], extra_prices: 
     else:
         padding = (high - low) * 0.08
     return [low - padding, high + padding]
+
+
+def _intraday_price_axis_range(
+    frame: pd.DataFrame,
+    show: dict[str, bool],
+    extra_prices: list[float] | None = None,
+) -> list[float] | None:
+    if frame.empty:
+        return None
+
+    candle_values = frame[["high", "low"]].dropna().astype(float)
+    if candle_values.empty:
+        return None
+
+    base_low = float(candle_values["low"].min())
+    base_high = float(candle_values["high"].max())
+    center = (base_low + base_high) / 2.0
+    min_span = max(abs(center) * 0.0015, 1.0)
+    base_span = max(base_high - base_low, min_span)
+    include_low = base_low - base_span * 0.25
+    include_high = base_high + base_span * 0.25
+    values = [base_low, base_high]
+
+    for column in _visible_indicator_columns(show):
+        if column not in frame:
+            continue
+        for value in frame[column].dropna().astype(float):
+            if include_low <= value <= include_high:
+                values.append(float(value))
+
+    if extra_prices:
+        for price in extra_prices:
+            value = float(price)
+            if include_low <= value <= include_high:
+                values.append(value)
+
+    low = min(values)
+    high = max(values)
+    span = max(high - low, min_span)
+    center = (low + high) / 2.0
+    padding = span * 0.10
+    return [center - (span / 2.0) - padding, center + (span / 2.0) + padding]
+
+
+def _visible_indicator_columns(show: dict[str, bool]) -> list[str]:
+    columns = []
+    if show.get("vwap"):
+        columns.append("vwap")
+    if show.get("minute_ma"):
+        columns.extend(["ma_5", "ma_25"])
+    if show.get("bollinger"):
+        columns.extend(["bb_upper_1", "bb_lower_1", "bb_upper_2", "bb_lower_2", "bb_upper_3", "bb_lower_3"])
+    return columns
