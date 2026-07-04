@@ -48,6 +48,12 @@ def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
 
     necklines = st.session_state.setdefault("necklines", [])
 
+    st.plotly_chart(
+        daily_chart(obs, show, "日足", necklines),
+        width="stretch",
+        key="neckline_reference_daily_chart",
+    )
+
     label_col, custom_col, color_col = st.columns([1.1, 1.3, 0.7])
     selected_label = label_col.selectbox("ラベル", NECKLINE_LABELS, index=0)
     custom_label = custom_col.text_input("ラベル名", value="", disabled=selected_label != "その他")
