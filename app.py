@@ -12,7 +12,7 @@ from src.simulator.environment import TradingEnvironment
 from src.simulator.order import Action
 from src.simulator.position import PositionSide
 from src.strategies.base import get_strategy
-from src.ui.chart import daily_chart, important_price_line_chart, minute_chart
+from src.ui.chart import IMPORTANT_PRICE_COLUMN_WIDTHS, daily_chart, important_price_line_chart, minute_chart
 from src.ui.controls import render_action_buttons
 from src.ui.neckline_picker import NECKLINE_COLORS, NECKLINE_LABELS
 from src.ui.sidebar import render_sidebar
@@ -81,15 +81,24 @@ def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
 
     chart_slot = st.empty()
     date_range = _render_daily_range_slider(obs)
+    st.caption("日足チャート内の青いバー、または下のスライダーで表示範囲を変更できます。")
     with chart_slot.container():
         event = st.plotly_chart(
             important_price_line_chart(obs, show, necklines, date_range),
             width="stretch",
             key="neckline_selection_chart",
             on_select="rerun",
-            selection_mode="points",
+            selection_mode=("points", "box"),
             config={"displayModeBar": True, "scrollZoom": True},
         )
+    selected_range = _selected_daily_range(event)
+    if selected_range is not None:
+        key = _daily_range_key(obs)
+        if selected_range != st.session_state.get(key):
+            st.session_state[key] = selected_range
+            st.session_state.last_neckline_selection = None
+            st.rerun()
+
     selected = _selected_neckline_price(event)
     if selected is not None:
         price, identity = selected
@@ -131,7 +140,11 @@ def _render_neckline_setup(obs: dict, show: dict[str, bool]) -> None:
         st.rerun()
 
 
-def _render_daily_range_slider(obs: dict) -> tuple[object, object] | None:
+def _daily_range_key(obs: dict) -> str:
+    return f"daily_line_range_{obs['symbol']}_{obs['date'].isoformat()}"
+
+
+def _daily_range_state(obs: dict) -> tuple[int, int] | None:
     daily = obs["daily_bars"]
     if daily.empty:
         return None
@@ -143,7 +156,7 @@ def _render_daily_range_slider(obs: dict) -> tuple[object, object] | None:
         return (min_index, max_index)
 
     default_start = max(len(dates) - 60, 0)
-    key = f"daily_line_range_{obs['symbol']}_{obs['date'].isoformat()}"
+    key = _daily_range_key(obs)
     current_value = st.session_state.get(key, (default_start, max_index))
     if (
         not isinstance(current_value, tuple)
@@ -152,30 +165,76 @@ def _render_daily_range_slider(obs: dict) -> tuple[object, object] | None:
     ):
         current_value = (default_start, max_index)
 
-    slider_col, _ = st.columns([0.84, 0.16])
-    with slider_col:
-        selected = st.select_slider(
-            "日足表示範囲",
-            options=list(range(len(dates))),
-            value=current_value,
-            format_func=lambda index: dates.iloc[int(index)].strftime("%Y-%m-%d"),
-            key=key,
-        )
-    start_index, end_index = int(selected[0]), int(selected[1])
+    start_index, end_index = sorted((int(current_value[0]), int(current_value[1])))
+    start_index = max(start_index, min_index)
+    end_index = min(end_index, max_index)
+    st.session_state[key] = (start_index, end_index)
     st.caption(f"表示中: {dates.iloc[start_index].isoformat()} 〜 {dates.iloc[end_index].isoformat()}")
     return (start_index, end_index)
 
 
+def _render_daily_range_slider(obs: dict) -> tuple[int, int] | None:
+    current_range = _daily_range_state(obs)
+    if current_range is None:
+        return None
+
+    daily = obs["daily_bars"]
+    dates = pd.to_datetime(daily["date"]).dt.date.reset_index(drop=True)
+    max_index = len(dates) - 1
+    if max_index <= 0:
+        return current_range
+
+    key = _daily_range_key(obs)
+    slider_key = f"{key}_slider"
+    if st.session_state.get(slider_key) != current_range:
+        st.session_state[slider_key] = current_range
+    slider_col, _ = st.columns(IMPORTANT_PRICE_COLUMN_WIDTHS)
+    with slider_col:
+        selected = st.slider(
+            "日足表示範囲",
+            min_value=0,
+            max_value=max_index,
+            step=1,
+            format="%d",
+            key=slider_key,
+        )
+    selected_range = (int(selected[0]), int(selected[1]))
+    st.session_state[key] = selected_range
+    st.caption(f"選択範囲: {dates.iloc[selected_range[0]].isoformat()} 〜 {dates.iloc[selected_range[1]].isoformat()}")
+    return selected_range
+
+
+def _selected_daily_range(event: dict) -> tuple[int, int] | None:
+    points = event.get("selection", {}).get("points", []) if event else []
+    selected_indices = []
+    for point in points:
+        customdata = point.get("customdata")
+        if not isinstance(customdata, list) or len(customdata) < 2 or customdata[0] != "range-selector":
+            continue
+        try:
+            selected_indices.append(int(customdata[1]))
+        except (TypeError, ValueError):
+            continue
+    if len(selected_indices) < 2:
+        return None
+    return (min(selected_indices), max(selected_indices))
+
+
 def _selected_neckline_price(event: dict) -> tuple[float, str] | None:
     points = event.get("selection", {}).get("points", []) if event else []
-    if not points:
+    if len(points) != 1:
         return None
     point = points[-1]
-    price = point.get("y")
     customdata = point.get("customdata")
     if isinstance(customdata, list) and customdata:
         price = customdata[0]
-    if price is None:
+    else:
+        price = point.get("y")
+    try:
+        price = float(price)
+    except (TypeError, ValueError):
+        return None
+    if price <= 0:
         return None
     price = round(float(price), 1)
     identity = ":".join(

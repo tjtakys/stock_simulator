@@ -26,6 +26,12 @@ BOLLINGER_STYLES = [
     ("bb_lower_3", "-3σ", "#64748b"),
 ]
 
+IMPORTANT_PRICE_COLUMN_WIDTHS = [0.84, 0.16]
+IMPORTANT_PRICE_HORIZONTAL_SPACING = 0.02
+UP_CANDLE_COLOR = "#16a34a"
+DOWN_CANDLE_COLOR = "#dc2626"
+FLAT_CANDLE_COLOR = "#64748b"
+
 
 def minute_chart(
     obs: dict,
@@ -94,7 +100,18 @@ def minute_chart(
         row=1,
         col=1,
     )
-    fig.add_trace(go.Bar(x=visible_minute["chart_x"], y=visible_minute["volume"], name="出来高"), row=2, col=1)
+    fig.add_trace(
+        go.Bar(
+            x=visible_minute["chart_x"],
+            y=visible_minute["volume"],
+            name="出来高",
+            marker=dict(color=_volume_bar_colors(visible_minute)),
+            customdata=visible_minute["timestamp"].dt.strftime("%H:%M"),
+            hovertemplate="%{customdata}<br>出来高 %{y:,.0f}<extra></extra>",
+        ),
+        row=2,
+        col=1,
+    )
 
     if show.get("vwap") and "vwap" in visible_minute:
         fig.add_trace(
@@ -212,12 +229,15 @@ def important_price_line_chart(
     necklines = necklines or []
     daily = _with_daily_axis(long_term_chart_frame(obs["daily_bars"], "日足"))
     visible_daily = _filter_daily_by_date_range(daily, date_range)
+    range_start, range_end = _date_range_to_axis_indices(daily, date_range)
     fig = make_subplots(
-        rows=1,
+        rows=2,
         cols=2,
-        shared_yaxes=True,
-        horizontal_spacing=0.02,
-        column_widths=[0.84, 0.16],
+        specs=[[{"type": "xy"}, {"type": "xy"}], [{"type": "xy"}, None]],
+        horizontal_spacing=IMPORTANT_PRICE_HORIZONTAL_SPACING,
+        vertical_spacing=0.045,
+        column_widths=IMPORTANT_PRICE_COLUMN_WIDTHS,
+        row_heights=[0.78, 0.22],
     )
     _add_long_term_price_traces(fig, visible_daily, show, "日足", row=1, col=1)
     y_range = _price_axis_range(
@@ -251,6 +271,7 @@ def important_price_line_chart(
 
     _add_necklines(fig, necklines, row=1, col=1)
     _add_necklines(fig, necklines, row=1, col=2, annotate=False)
+    _add_daily_range_indicator(fig, daily, range_start, range_end, row=2, col=1)
 
     selector_frame = visible_daily.tail(min(len(visible_daily), 120))
     low, high = float(y_range[0]), float(y_range[1])
@@ -282,11 +303,11 @@ def important_price_line_chart(
         col=1,
     )
     fig.update_layout(
-        height=620,
-        margin=dict(l=10, r=10, t=30, b=10),
+        height=760,
+        margin=dict(l=10, r=10, t=30, b=36),
         xaxis_rangeslider_visible=False,
         clickmode="event+select",
-        dragmode="pan",
+        dragmode="select",
         hovermode="closest",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
@@ -301,9 +322,23 @@ def important_price_line_chart(
             row=1,
             col=1,
         )
+    if not daily.empty:
+        indicator_tick_frame = _daily_tick_frame(daily)
+        fig.update_xaxes(
+            range=[float(daily["_axis_x"].min()) - 0.5, float(daily["_axis_x"].max()) + 0.5],
+            tickmode="array",
+            tickvals=indicator_tick_frame["_axis_x"],
+            ticktext=indicator_tick_frame["_axis_label"],
+            showgrid=False,
+            zeroline=False,
+            title_text="日足表示範囲（下のバーをドラッグして選択）",
+            row=2,
+            col=1,
+        )
     fig.update_xaxes(title_text="価格帯別出来高", tickformat=",d", showgrid=False, row=1, col=2)
     fig.update_yaxes(range=y_range, title_text="価格", tickformat=",.0f", row=1, col=1)
     fig.update_yaxes(range=y_range, showticklabels=False, row=1, col=2)
+    fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, range=[-1, 1], row=2, col=1)
     fig.update_yaxes(
         showspikes=True,
         spikemode="across",
@@ -362,6 +397,20 @@ def intraday_chart_frame(minute: pd.DataFrame, chart_type: str) -> pd.DataFrame:
     for column in bands.columns:
         resampled[column] = bands[column]
     return resampled
+
+
+def _volume_bar_colors(frame: pd.DataFrame) -> list[str]:
+    colors = []
+    for row in frame[["open", "close"]].itertuples(index=False):
+        open_price = float(row.open)
+        close_price = float(row.close)
+        if close_price > open_price:
+            colors.append(UP_CANDLE_COLOR)
+        elif close_price < open_price:
+            colors.append(DOWN_CANDLE_COLOR)
+        else:
+            colors.append(FLAT_CANDLE_COLOR)
+    return colors
 
 
 def long_term_chart_frame(daily: pd.DataFrame, chart_type: str) -> pd.DataFrame:
@@ -462,6 +511,129 @@ def _volume_profile(frame: pd.DataFrame, y_range: list[float], bins: int = 32) -
     prices = [low + (index + 0.5) * bin_size for index in range(bins)]
     ranges = [[low + index * bin_size, low + (index + 1) * bin_size] for index in range(bins)]
     return {"prices": prices, "volumes": volumes, "ranges": ranges, "bin_size": bin_size}
+
+
+def _date_range_to_axis_indices(frame: pd.DataFrame, date_range: tuple[object, object] | None) -> tuple[int, int]:
+    if frame.empty:
+        return 0, 0
+    if date_range is None or len(date_range) != 2:
+        return int(frame["_axis_x"].min()), int(frame["_axis_x"].max())
+
+    if all(isinstance(value, int) for value in date_range):
+        start, end = sorted((int(date_range[0]), int(date_range[1])))
+        return max(start, 0), min(end, len(frame) - 1)
+
+    dates = pd.to_datetime(frame["date"])
+    start_date, end_date = sorted(pd.to_datetime([date_range[0], date_range[1]]))
+    selected = frame[(dates >= start_date) & (dates <= end_date)]
+    if selected.empty:
+        return int(frame["_axis_x"].min()), int(frame["_axis_x"].max())
+    return int(selected["_axis_x"].min()), int(selected["_axis_x"].max())
+
+
+def _add_daily_range_indicator(
+    fig: go.Figure,
+    daily: pd.DataFrame,
+    start_index: int,
+    end_index: int,
+    row: int,
+    col: int,
+) -> None:
+    if daily.empty:
+        return
+
+    start_index, end_index = sorted((int(start_index), int(end_index)))
+    start_index = max(start_index, int(daily["_axis_x"].min()))
+    end_index = min(end_index, int(daily["_axis_x"].max()))
+    full_start = float(daily["_axis_x"].min()) - 0.5
+    full_end = float(daily["_axis_x"].max()) + 0.5
+    selected_start = float(start_index) - 0.5
+    selected_end = float(end_index) + 0.5
+
+    fig.add_shape(
+        type="rect",
+        x0=full_start,
+        x1=full_end,
+        y0=-0.46,
+        y1=0.46,
+        fillcolor="rgba(148, 163, 184, 0.30)",
+        line=dict(color="rgba(100, 116, 139, 0.65)", width=1),
+        layer="below",
+        row=row,
+        col=col,
+    )
+    fig.add_shape(
+        type="rect",
+        x0=selected_start,
+        x1=selected_end,
+        y0=-0.50,
+        y1=0.50,
+        fillcolor="rgba(37, 99, 235, 0.82)",
+        line=dict(color="#1d4ed8", width=2),
+        layer="below",
+        row=row,
+        col=col,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=[daily["_axis_x"].min(), daily["_axis_x"].max()],
+            y=[0, 0],
+            mode="lines",
+            line=dict(color="rgba(148, 163, 184, 0.88)", width=5),
+            hoverinfo="skip",
+            showlegend=False,
+            name="日足表示範囲全体",
+        ),
+        row=row,
+        col=col,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[start_index, end_index],
+            y=[0, 0],
+            mode="lines",
+            line=dict(color="#1d4ed8", width=8),
+            customdata=[["range-indicator"], ["range-indicator"]],
+            hovertemplate="表示範囲<extra></extra>",
+            showlegend=False,
+            name="日足表示範囲",
+        ),
+        row=row,
+        col=col,
+    )
+    date_text = pd.to_datetime(daily["date"]).dt.strftime("%Y-%m-%d")
+    fig.add_trace(
+        go.Scatter(
+            x=daily["_axis_x"],
+            y=[0] * len(daily),
+            mode="markers",
+            marker=dict(size=22, color="rgba(37, 99, 235, 0.30)", line=dict(color="rgba(255, 255, 255, 0.85)", width=0.7)),
+            customdata=[
+                ["range-selector", int(axis_x), date_label]
+                for axis_x, date_label in zip(daily["_axis_x"], date_text, strict=True)
+            ],
+            hovertemplate="%{customdata[2]}<extra>日足表示範囲</extra>",
+            showlegend=False,
+            name="日足表示範囲調整",
+        ),
+        row=row,
+        col=col,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[start_index, end_index],
+            y=[0, 0],
+            mode="markers",
+            marker=dict(size=18, symbol="square", color="#1d4ed8", line=dict(color="#ffffff", width=2.4)),
+            customdata=[["range-indicator"], ["range-indicator"]],
+            hovertemplate="表示範囲<extra></extra>",
+            showlegend=False,
+            name="日足表示範囲の端",
+        ),
+        row=row,
+        col=col,
+    )
 
 
 def _filter_daily_by_date_range(frame: pd.DataFrame, date_range: tuple[object, object] | None) -> pd.DataFrame:

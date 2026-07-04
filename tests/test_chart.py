@@ -206,6 +206,45 @@ def test_important_price_line_chart_uses_trading_day_axis_for_integer_range():
     assert list(fig.layout.xaxis.range) == [9.5, 14.5]
 
 
+def test_important_price_line_chart_aligns_range_indicator_with_daily_chart():
+    daily = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-06-01", periods=20, freq="B"),
+            "open": range(100, 120),
+            "high": range(101, 121),
+            "low": range(99, 119),
+            "close": range(100, 120),
+            "volume": [1000] * 20,
+            "daily_ma_5": range(100, 120),
+            "daily_ma_25": range(100, 120),
+            "daily_ma_75": range(100, 120),
+        }
+    )
+
+    fig = important_price_line_chart(
+        {"daily_bars": daily},
+        {"daily_ma": False, "bollinger": False},
+        [],
+        (10, 14),
+    )
+
+    selected_range = next(trace for trace in fig.data if trace.name == "日足表示範囲")
+    adjustment = next(trace for trace in fig.data if trace.name == "日足表示範囲調整")
+    selected_shape = fig.layout.shapes[1]
+
+    assert list(selected_range.x) == [10, 14]
+    assert selected_shape.fillcolor == "rgba(37, 99, 235, 0.82)"
+    assert selected_shape.x0 == 9.5
+    assert selected_shape.x1 == 14.5
+    assert selected_range.line.width == 8
+    assert list(adjustment.x) == list(range(20))
+    assert adjustment.customdata[0][0] == "range-selector"
+    assert adjustment.marker.color == "rgba(37, 99, 235, 0.30)"
+    assert list(fig.layout.xaxis3.range) == [-0.5, 19.5]
+    assert fig.layout.xaxis.domain == fig.layout.xaxis3.domain
+    assert fig.layout.dragmode == "select"
+
+
 def test_minute_chart_shows_previous_day_context_at_market_open():
     minute = pd.DataFrame(
         {
@@ -237,6 +276,30 @@ def test_minute_chart_shows_previous_day_context_at_market_open():
     assert any(trace.name == "前日足" for trace in fig.data)
     assert fig.layout.yaxis.range[0] < 95.0
     assert fig.layout.yaxis.range[1] > 110.0
+
+
+def test_minute_chart_colors_volume_by_candle_direction():
+    minute = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-06-24 09:00:00", periods=3, freq="min"),
+            "open": [100.0, 102.0, 101.0],
+            "high": [103.0, 103.0, 102.0],
+            "low": [99.0, 100.0, 100.0],
+            "close": [102.0, 101.0, 101.0],
+            "volume": [1000, 1200, 900],
+        }
+    )
+    daily = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+
+    fig = minute_chart(
+        {"minute_bars": minute, "daily_bars": daily, "fills": []},
+        {"vwap": False, "minute_ma": False, "bollinger": False},
+        "過去10分",
+    )
+
+    volume = next(trace for trace in fig.data if trace.name == "出来高")
+
+    assert list(volume.marker.color) == ["#16a34a", "#dc2626", "#64748b"]
 
 
 def test_bollinger_upper_and_lower_pairs_use_same_color():
