@@ -11,6 +11,7 @@ from src.data.providers.yahoo import RealDataUnavailable, yahoo_symbol
 from src.simulator.environment import TradingEnvironment
 from src.simulator.order import Action
 from src.simulator.position import PositionSide
+from src.strategies.base import get_strategy
 from src.ui.chart import daily_chart, important_price_line_chart, minute_chart
 from src.ui.controls import render_action_buttons
 from src.ui.neckline_picker import NECKLINE_COLORS, NECKLINE_LABELS
@@ -32,6 +33,15 @@ def _speed_interval_seconds(speed: str) -> float | None:
         "30x": 2.0,
         "60x": 1.0,
     }[speed]
+
+
+def _strategy_display_name(strategy_name: str) -> str:
+    return {
+        "bollinger_next_reversion": "ボリンジャー3σ逆張り",
+        "bollinger_reversion": "ボリンジャー逆張り",
+        "vwap_ma_breakout": "VWAP + 移動平均ブレイクアウト",
+        "combined_rule": "複合ルール",
+    }.get(strategy_name, strategy_name)
 
 
 def _autoplay_sleep_seconds(env: TradingEnvironment, interval: float) -> float:
@@ -227,6 +237,30 @@ def _remember_order_event(action: Action | str, info: dict) -> None:
     st.session_state.last_order_event = {"kind": kind, "title": title, "detail": detail}
 
 
+def _auto_trade_action(inputs: dict, obs: dict) -> Action:
+    if not inputs.get("auto_trade"):
+        return Action.HOLD
+    strategy = get_strategy(inputs["auto_strategy"])
+    return strategy.decide(obs)
+
+
+def _remember_auto_action(action: Action) -> None:
+    labels = {
+        Action.BUY: "買い",
+        Action.SELL: "空売り",
+        Action.CLOSE: "決済",
+        Action.HOLD: "見送り",
+    }
+    st.session_state.last_auto_action = labels[action]
+
+
+def _render_auto_trade_status(inputs: dict) -> None:
+    if not inputs.get("auto_trade"):
+        return
+    action_text = st.session_state.get("last_auto_action", "待機")
+    st.info(f"自動売買: {_strategy_display_name(inputs['auto_strategy'])} / 直近判断: {action_text}")
+
+
 def _render_order_event() -> None:
     event = st.session_state.get("last_order_event")
     if not event:
@@ -327,6 +361,7 @@ def main() -> None:
         try:
             if inputs["reset"]:
                 st.session_state.last_order_event = None
+                st.session_state.last_auto_action = None
                 st.session_state.is_playing = False
             spinner_text = (
                 f"実データを取得中です... {inputs['symbol']} / {inputs['trading_date'].isoformat()}"
@@ -356,6 +391,7 @@ def main() -> None:
         st.stop()
 
     action = render_action_buttons(st.session_state.is_playing)
+    _render_auto_trade_status(inputs)
     if action == "PLAY":
         st.session_state.is_playing = True
         st.rerun()
@@ -365,20 +401,29 @@ def main() -> None:
     elif action == "RESET_REPLAY":
         st.session_state.is_playing = False
         st.session_state.last_order_event = None
+        st.session_state.last_auto_action = None
         obs = env.reset()
     elif action == "STEP_BACK":
         st.session_state.is_playing = False
         st.session_state.last_order_event = None
+        st.session_state.last_auto_action = None
         obs = env.retreat()
     elif action == "RUN_TO_END":
         st.session_state.is_playing = False
+        st.session_state.last_auto_action = None
         info = {}
+        executed_action: Action = Action.HOLD
         while not env.done:
-            obs, _, _, info = env.step(Action.HOLD, inputs["quantity"])
-        _remember_order_event(action, info)
+            executed_action = _auto_trade_action(inputs, env._observation())
+            _remember_auto_action(executed_action)
+            obs, _, _, info = env.step(executed_action, inputs["quantity"])
+        _remember_order_event(executed_action if inputs.get("auto_trade") else action, info)
     elif action is not None:
-        obs, _, _, info = env.step(action, inputs["quantity"])
-        _remember_order_event(action, info)
+        executed_action = _auto_trade_action(inputs, obs) if inputs.get("auto_trade") and action == Action.HOLD else action
+        if inputs.get("auto_trade") and action == Action.HOLD:
+            _remember_auto_action(executed_action)
+        obs, _, _, info = env.step(executed_action, inputs["quantity"])
+        _remember_order_event(executed_action, info)
     else:
         obs = env._observation()
 
@@ -423,7 +468,10 @@ def main() -> None:
     interval = _speed_interval_seconds(inputs["speed"])
     if st.session_state.is_playing and interval is not None and not env.done:
         time.sleep(_autoplay_sleep_seconds(env, interval))
-        env.step(Action.HOLD, inputs["quantity"])
+        auto_action = _auto_trade_action(inputs, env._observation())
+        _remember_auto_action(auto_action)
+        _, _, _, info = env.step(auto_action, inputs["quantity"])
+        _remember_order_event(auto_action, info)
         st.rerun()
 
 

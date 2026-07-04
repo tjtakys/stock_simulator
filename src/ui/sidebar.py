@@ -37,6 +37,18 @@ def render_sidebar() -> dict:
     show_daily_ma = st.sidebar.checkbox("長期足の移動平均線", value=True)
     show_bollinger = st.sidebar.checkbox("ボリンジャーバンド", value=True)
 
+    st.sidebar.subheader("自動売買")
+    auto_trade = st.sidebar.checkbox("自動売買モード", value=False)
+    strategy_labels = {
+        "bollinger_next_reversion": "ボリンジャー3σ逆張り",
+    }
+    auto_strategy = st.sidebar.selectbox(
+        "売買アルゴリズム",
+        list(strategy_labels),
+        format_func=lambda value: strategy_labels[value],
+        disabled=not auto_trade,
+    )
+
     initial_cash = st.sidebar.number_input(
         "口座入金額",
         min_value=100_000,
@@ -55,6 +67,8 @@ def render_sidebar() -> dict:
         "speed": speed,
         "display_window": display_window,
         "chart_type": chart_type,
+        "auto_trade": bool(auto_trade),
+        "auto_strategy": auto_strategy,
         "initial_cash": float(initial_cash),
         "quantity": int(quantity),
         "reset": reset,

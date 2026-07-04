@@ -14,6 +14,7 @@ class Strategy(ABC):
 
 
 def get_strategy(name: str) -> Strategy:
+    from src.strategies.bollinger_next_reversion import BollingerNextBarReversionStrategy
     from src.strategies.bollinger_reversion import BollingerReversionStrategy
     from src.strategies.combined_rule import CombinedRuleStrategy
     from src.strategies.vwap_ma_breakout import VwapMaBreakoutStrategy
@@ -21,6 +22,7 @@ def get_strategy(name: str) -> Strategy:
     strategies: dict[str, type[Strategy]] = {
         VwapMaBreakoutStrategy.name: VwapMaBreakoutStrategy,
         BollingerReversionStrategy.name: BollingerReversionStrategy,
+        BollingerNextBarReversionStrategy.name: BollingerNextBarReversionStrategy,
         CombinedRuleStrategy.name: CombinedRuleStrategy,
     }
     try:
