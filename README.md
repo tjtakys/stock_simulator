@@ -4,7 +4,8 @@
 
 <video src="docs/assets/demo_movie.mov" controls width="960"></video>
 
-[デモ動画を開く](docs/assets/demo_movie.mov)
+[デモ動画を開く](https://github.com/user-attachments/assets/8d6db9ef-b70e-456d-a1af-a27ec49e3a4a)
+
 
 ## 使い方
 
