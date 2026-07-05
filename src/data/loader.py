@@ -117,8 +117,38 @@ def load_market_data(
         data_source=data_source,
         force_refresh=force_refresh,
     )
-    minute = _pad_market_open(minute, daily, _as_date(trading_date))
+    target_date = _as_date(trading_date)
+    minute = _repair_opening_volume(minute, daily, target_date)
+    minute = _pad_market_open(minute, daily, target_date)
     return minute, daily
+
+
+def _repair_opening_volume(minute: pd.DataFrame, daily: pd.DataFrame, trading_date: date) -> pd.DataFrame:
+    if minute.empty or daily.empty or "volume" not in minute or "volume" not in daily:
+        return minute
+
+    result = minute.copy().sort_values("timestamp").reset_index(drop=True)
+    first_timestamp = pd.Timestamp(result.iloc[0]["timestamp"])
+    market_open = pd.Timestamp(datetime.combine(trading_date, time(9, 0)))
+    max_repair_time = market_open + timedelta(minutes=30)
+    if first_timestamp < market_open or first_timestamp > max_repair_time:
+        return result
+    if int(result.iloc[0]["volume"]) != 0:
+        return result
+
+    daily_dates = pd.to_datetime(daily["date"]).dt.date if "date" in daily else pd.Series(dtype=object)
+    current_daily = daily[daily_dates == trading_date] if not daily.empty else pd.DataFrame()
+    if current_daily.empty:
+        return result
+
+    daily_volume = int(current_daily.iloc[-1]["volume"])
+    minute_volume = int(result["volume"].sum())
+    missing_volume = daily_volume - minute_volume
+    if missing_volume <= 0:
+        return result
+
+    result.loc[0, "volume"] = missing_volume
+    return result[MINUTE_COLUMNS]
 
 
 def _pad_market_open(minute: pd.DataFrame, daily: pd.DataFrame, trading_date: date) -> pd.DataFrame:

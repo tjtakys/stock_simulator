@@ -32,6 +32,11 @@ def render_sidebar() -> dict:
         ["1分足", "3分足", "5分足", "10分足", "30分足", "60分足", "日足", "週足", "月足"],
         horizontal=True,
     )
+    use_necklines = st.sidebar.toggle(
+        "重要価格ラインを使う",
+        value=True,
+        help="OFFにすると日足での重要価格ライン設定を省略し、日付変更時も設定画面へ戻りません。",
+    )
 
     st.sidebar.subheader("指標")
     show_vwap = st.sidebar.checkbox("出来高加重平均価格", value=True)
@@ -71,7 +76,11 @@ def render_sidebar() -> dict:
         step=1_000_000,
     )
     quantity = st.sidebar.number_input("注文株数", min_value=1, max_value=100_000, value=DEFAULT_ORDER_QUANTITY, step=100)
-    reset = st.sidebar.button("ライン設定からやり直す", width="stretch")
+    reset = st.sidebar.button(
+        "ライン設定からやり直す",
+        width="stretch",
+        disabled=not use_necklines,
+    )
     return {
         "symbol": symbol,
         "trading_date": trading_date,
@@ -81,6 +90,7 @@ def render_sidebar() -> dict:
         "speed": speed,
         "display_window": display_window,
         "chart_type": chart_type,
+        "use_necklines": bool(use_necklines),
         "auto_trade": bool(auto_trade),
         "auto_strategy": auto_strategy,
         "batch_mode": bool(auto_trade and batch_mode),

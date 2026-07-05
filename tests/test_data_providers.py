@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.data.loader import _pad_market_open
+from src.data.loader import _pad_market_open, _repair_opening_volume
 from src.data.providers.yahoo import yahoo_symbol
 
 
@@ -43,3 +43,32 @@ def test_pad_market_open_adds_missing_opening_minutes_from_daily_open():
     assert result.iloc[0]["close"] == 79130.0
     assert result.iloc[:15]["volume"].sum() == 0
     assert result.iloc[15]["timestamp"] == pd.Timestamp("2026-07-02 09:15:00")
+
+
+def test_repair_opening_volume_uses_daily_volume_difference():
+    minute = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2026-07-02 09:15:00", "2026-07-02 09:16:00"]),
+            "open": [79130.0, 80890.0],
+            "high": [80980.0, 80990.0],
+            "low": [79000.0, 79450.0],
+            "close": [80850.0, 79450.0],
+            "volume": [0, 428100],
+        }
+    )
+    daily = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+            "open": [91180.0, 79130.0],
+            "high": [93060.0, 80990.0],
+            "low": [87120.0, 75000.0],
+            "close": [88130.0, 76260.0],
+            "volume": [29322300, 900000],
+        }
+    )
+
+    result = _repair_opening_volume(minute, daily, pd.Timestamp("2026-07-02").date())
+
+    assert result.iloc[0]["timestamp"] == pd.Timestamp("2026-07-02 09:15:00")
+    assert result.iloc[0]["volume"] == 471900
+    assert result["volume"].sum() == 900000

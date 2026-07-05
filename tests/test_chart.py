@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.indicators.registry import add_minute_indicators
 from src.ui.chart import (
     _intraday_price_axis_range,
     _visible_minute_bars,
@@ -148,7 +149,12 @@ def test_neckline_selection_chart_adds_clickable_price_layer():
     selector = fig.data[-1]
     assert selector.name == "価格選択"
     assert selector.customdata[0][0] is not None
+    assert selector.marker.size == 28
+    assert selector.marker.color == "rgba(37, 99, 235, 0)"
+    assert selector.unselected.marker.opacity == 0
     assert fig.layout.clickmode == "event+select"
+    assert fig.layout.dragmode == "pan"
+    assert fig.layout.plot_bgcolor == "#ffffff"
     assert fig.layout.yaxis.showspikes
 
 
@@ -180,6 +186,34 @@ def test_important_price_line_chart_uses_selected_daily_range():
     assert any(trace.name == "価格帯別出来高" for trace in fig.data)
 
 
+def test_important_price_line_chart_click_layer_covers_all_visible_days():
+    daily = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-01-01", periods=130, freq="B"),
+            "open": range(100, 230),
+            "high": range(101, 231),
+            "low": range(99, 229),
+            "close": range(100, 230),
+            "volume": [1000] * 130,
+            "daily_ma_5": range(100, 230),
+            "daily_ma_25": range(100, 230),
+            "daily_ma_75": range(100, 230),
+        }
+    )
+
+    fig = important_price_line_chart(
+        {"daily_bars": daily},
+        {"daily_ma": False, "bollinger": False},
+        [],
+        (0, 129),
+    )
+
+    selector = next(trace for trace in fig.data if trace.name == "価格選択")
+
+    assert min(selector.x) == 0
+    assert max(selector.x) == 129
+
+
 def test_important_price_line_chart_uses_trading_day_axis_for_integer_range():
     daily = pd.DataFrame(
         {
@@ -206,7 +240,7 @@ def test_important_price_line_chart_uses_trading_day_axis_for_integer_range():
     assert list(fig.layout.xaxis.range) == [9.5, 14.5]
 
 
-def test_important_price_line_chart_aligns_range_indicator_with_daily_chart():
+def test_important_price_line_chart_omits_internal_daily_range_bar():
     daily = pd.DataFrame(
         {
             "date": pd.date_range("2026-06-01", periods=20, freq="B"),
@@ -228,21 +262,22 @@ def test_important_price_line_chart_aligns_range_indicator_with_daily_chart():
         (10, 14),
     )
 
-    selected_range = next(trace for trace in fig.data if trace.name == "日足表示範囲")
-    adjustment = next(trace for trace in fig.data if trace.name == "日足表示範囲調整")
-    selected_shape = fig.layout.shapes[1]
+    trace_names = {trace.name for trace in fig.data}
 
-    assert list(selected_range.x) == [10, 14]
-    assert selected_shape.fillcolor == "rgba(37, 99, 235, 0.82)"
-    assert selected_shape.x0 == 9.5
-    assert selected_shape.x1 == 14.5
-    assert selected_range.line.width == 8
-    assert list(adjustment.x) == list(range(20))
-    assert adjustment.customdata[0][0] == "range-selector"
-    assert adjustment.marker.color == "rgba(37, 99, 235, 0.30)"
-    assert list(fig.layout.xaxis3.range) == [-0.5, 19.5]
-    assert fig.layout.xaxis.domain == fig.layout.xaxis3.domain
-    assert fig.layout.dragmode == "select"
+    assert list(fig.data[0].x) == [10, 11, 12, 13, 14]
+    assert "価格帯別出来高" in trace_names
+    assert "日足表示範囲" not in trace_names
+    assert "日足表示範囲調整" not in trace_names
+    assert "日足表示範囲（チャート内）" not in trace_names
+    assert "日足表示範囲の端" not in trace_names
+    assert "日足表示範囲全体" not in trace_names
+    assert all(shape.fillcolor != "rgba(37, 99, 235, 0.92)" for shape in fig.layout.shapes)
+    assert all(shape.fillcolor != "rgba(37, 99, 235, 0.78)" for shape in fig.layout.shapes)
+    assert list(fig.layout.xaxis.range) == [9.5, 14.5]
+    assert not hasattr(fig.layout, "xaxis3") or fig.layout.xaxis3.to_plotly_json() == {}
+    assert fig.layout.dragmode == "pan"
+    assert fig.layout.margin.l == 82
+    assert fig.layout.yaxis.automargin
 
 
 def test_minute_chart_shows_previous_day_context_at_market_open():
@@ -276,6 +311,100 @@ def test_minute_chart_shows_previous_day_context_at_market_open():
     assert any(trace.name == "前日足" for trace in fig.data)
     assert fig.layout.yaxis.range[0] < 95.0
     assert fig.layout.yaxis.range[1] > 110.0
+    assert fig.layout.margin.l == 92
+    assert fig.layout.margin.b == 58
+    assert fig.layout.xaxis.automargin
+    assert fig.layout.xaxis2.automargin
+    assert fig.layout.yaxis.automargin
+    assert fig.layout.yaxis2.automargin
+
+
+def test_minute_chart_ignores_previous_day_context_after_playback_starts():
+    minute = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-06-24 09:00:00", periods=2, freq="min"),
+            "open": [100.0, 100.5],
+            "high": [101.0, 101.5],
+            "low": [99.0, 99.5],
+            "close": [100.5, 101.0],
+            "volume": [1000, 1200],
+        }
+    )
+    daily = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-23"]),
+            "open": [150.0],
+            "high": [200.0],
+            "low": [50.0],
+            "close": [180.0],
+            "volume": [1000],
+        }
+    )
+
+    fig = minute_chart(
+        {"minute_bars": minute, "daily_bars": daily, "fills": []},
+        {"vwap": False, "minute_ma": False, "bollinger": False},
+        "過去30分",
+    )
+
+    assert any(trace.name == "前日足" for trace in fig.data)
+    assert fig.layout.yaxis.range[0] > 90.0
+    assert fig.layout.yaxis.range[1] < 110.0
+
+
+def test_minute_chart_indicator_lines_do_not_show_markers_while_short():
+    minute = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-06-24 09:00:00", periods=5, freq="min"),
+            "open": [100.0, 101.0, 102.0, 103.0, 104.0],
+            "high": [101.0, 102.0, 103.0, 104.0, 105.0],
+            "low": [99.0, 100.0, 101.0, 102.0, 103.0],
+            "close": [101.0, 102.0, 103.0, 104.0, 105.0],
+            "volume": [1000, 1100, 1200, 1300, 1400],
+        }
+    )
+    daily = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+
+    fig = minute_chart(
+        {"minute_bars": add_minute_indicators(minute), "daily_bars": daily, "fills": []},
+        {"vwap": False, "minute_ma": True, "bollinger": True},
+        "過去10分",
+    )
+
+    line_traces = [trace for trace in fig.data if trace.name.startswith(("移動平均", "ボリンジャー"))]
+
+    assert line_traces
+    assert all(trace.mode == "lines" for trace in line_traces)
+
+
+def test_minute_chart_shows_opening_volume_when_first_moving_bar_is_zero():
+    minute = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-07-02 09:00:00",
+                    "2026-07-02 09:01:00",
+                    "2026-07-02 09:02:00",
+                ]
+            ),
+            "open": [100.0, 100.0, 104.0],
+            "high": [100.0, 105.0, 106.0],
+            "low": [100.0, 99.0, 103.0],
+            "close": [100.0, 104.0, 105.0],
+            "volume": [0, 0, 2500],
+        }
+    )
+    daily = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
+
+    fig = minute_chart(
+        {"minute_bars": minute, "daily_bars": daily, "fills": []},
+        {"vwap": False, "minute_ma": False, "bollinger": False},
+        "過去10分",
+    )
+
+    volume = next(trace for trace in fig.data if trace.name == "出来高")
+
+    assert list(volume.y) == [0.0, 2500.0, 2500.0]
 
 
 def test_minute_chart_colors_volume_by_candle_direction():
@@ -297,9 +426,17 @@ def test_minute_chart_colors_volume_by_candle_direction():
         "過去10分",
     )
 
+    candle = next(trace for trace in fig.data if trace.name == "1分足")
     volume = next(trace for trace in fig.data if trace.name == "出来高")
 
-    assert list(volume.marker.color) == ["#16a34a", "#dc2626", "#64748b"]
+    assert candle.increasing.line.color == "#dc2626"
+    assert candle.decreasing.line.color == "#16a34a"
+    assert list(volume.marker.color) == ["#dc2626", "#16a34a", "#64748b"]
+    assert list(volume.marker.line.color) == ["#dc2626", "#16a34a", "#64748b"]
+    assert list(volume.x) == [0.0, 1.0, 2.0]
+    assert list(volume.y) == [1000.0, 1200.0, 900.0]
+    assert volume.showlegend is False
+    assert fig.layout.barmode == "overlay"
 
 
 def test_bollinger_upper_and_lower_pairs_use_same_color():
@@ -323,3 +460,5 @@ def test_bollinger_upper_and_lower_pairs_use_same_color():
     assert colors["日足 ボリンジャー +1σ"] == colors["日足 ボリンジャー -1σ"]
     assert colors["日足 ボリンジャー +2σ"] == colors["日足 ボリンジャー -2σ"]
     assert colors["日足 ボリンジャー +3σ"] == colors["日足 ボリンジャー -3σ"]
+    assert fig.layout.margin.l == 82
+    assert fig.layout.yaxis.automargin
