@@ -47,6 +47,16 @@ def test_environment_step_executes_action_and_tracks_pnl():
     assert obs["realized_pnl"] == 10.0
 
 
+def test_environment_step_can_use_strategy_execution_price():
+    env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), _daily_bars(), order_quantity=1)
+    env.reset()
+
+    obs, _, _, info = env.step(Action.BUY, quantity=1, execution_price=95.0)
+
+    assert info["fill"]["fill"]["price"] == 95.0
+    assert obs["position"].entry_price == 95.0
+
+
 def test_environment_reset_returns_to_first_timestamp_and_clears_trades():
     env = TradingEnvironment("285A", date(2026, 6, 24), _minute_bars(), _daily_bars(), order_quantity=1)
     env.reset()

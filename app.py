@@ -312,10 +312,16 @@ def _remember_order_event(action: Action | str, info: dict) -> None:
 
 
 def _auto_trade_action(inputs: dict, obs: dict) -> Action:
+    action, _ = _auto_trade_decision(inputs, obs)
+    return action
+
+
+def _auto_trade_decision(inputs: dict, obs: dict) -> tuple[Action, float | None]:
     if not inputs.get("auto_trade"):
-        return Action.HOLD
+        return Action.HOLD, None
     strategy = get_strategy(inputs["auto_strategy"])
-    return strategy.decide(obs)
+    action = strategy.decide(obs)
+    return action, strategy.execution_price(obs, action)
 
 
 def _remember_auto_action(action: Action) -> None:
@@ -344,9 +350,9 @@ def _run_to_end(env: TradingEnvironment, inputs: dict) -> dict:
     info = {}
     executed_action: Action = Action.HOLD
     while not env.done:
-        executed_action = _auto_trade_action(inputs, env._observation())
+        executed_action, execution_price = _auto_trade_decision(inputs, env._observation())
         _remember_auto_action(executed_action)
-        _, _, _, info = env.step(executed_action, inputs["quantity"])
+        _, _, _, info = env.step(executed_action, inputs["quantity"], execution_price=execution_price)
         steps += 1
 
     obs = env._observation()
@@ -550,10 +556,14 @@ def main() -> None:
         _remember_order_event(executed_action if inputs.get("auto_trade") else action, last_info)
     elif action is not None:
         st.session_state.batch_result = None
-        executed_action = _auto_trade_action(inputs, obs) if inputs.get("auto_trade") and action == Action.HOLD else action
+        execution_price = None
+        if inputs.get("auto_trade") and action == Action.HOLD:
+            executed_action, execution_price = _auto_trade_decision(inputs, obs)
+        else:
+            executed_action = action
         if inputs.get("auto_trade") and action == Action.HOLD:
             _remember_auto_action(executed_action)
-        obs, _, _, info = env.step(executed_action, inputs["quantity"])
+        obs, _, _, info = env.step(executed_action, inputs["quantity"], execution_price=execution_price)
         _remember_order_event(executed_action, info)
     else:
         obs = env._observation()
@@ -602,9 +612,9 @@ def main() -> None:
     interval = _speed_interval_seconds(inputs["speed"])
     if st.session_state.is_playing and interval is not None and not env.done:
         time.sleep(_autoplay_sleep_seconds(env, interval))
-        auto_action = _auto_trade_action(inputs, env._observation())
+        auto_action, execution_price = _auto_trade_decision(inputs, env._observation())
         _remember_auto_action(auto_action)
-        _, _, _, info = env.step(auto_action, inputs["quantity"])
+        _, _, _, info = env.step(auto_action, inputs["quantity"], execution_price=execution_price)
         _remember_order_event(auto_action, info)
         st.rerun()
 

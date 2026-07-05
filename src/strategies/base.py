@@ -12,6 +12,9 @@ class Strategy(ABC):
     def decide(self, obs: dict) -> Action:
         raise NotImplementedError
 
+    def execution_price(self, obs: dict, action: Action) -> float | None:
+        return None
+
 
 def get_strategy(name: str) -> Strategy:
     from src.strategies.bollinger_next_reversion import BollingerNextBarReversionStrategy

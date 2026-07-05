@@ -57,16 +57,22 @@ class TradingEnvironment:
         self._history = []
         return self._observation()
 
-    def step(self, action: Action | str, quantity: int | None = None) -> tuple[dict, float, bool, dict]:
+    def step(
+        self,
+        action: Action | str,
+        quantity: int | None = None,
+        execution_price: float | None = None,
+    ) -> tuple[dict, float, bool, dict]:
         action = Action(action)
         quantity = quantity or self.order_quantity
         self._history.append(self._snapshot())
         before = self.broker.get_account(self.engine.current_state()["current_price"])["equity"]
 
         state = self.engine.current_state()
+        fill_price = float(execution_price) if execution_price is not None else state["current_price"]
         fill_info = self.broker.execute_action(
             action,
-            price=state["current_price"],
+            price=fill_price,
             timestamp=state["timestamp"],
             quantity=quantity,
         )

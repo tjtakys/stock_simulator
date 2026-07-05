@@ -75,6 +75,7 @@ def test_bollinger_next_reversion_buys_after_previous_lower_break():
     obs = _bollinger_next_obs(previous_close=90.0)
 
     assert strategy.decide(obs) == Action.BUY
+    assert strategy.execution_price(obs, Action.BUY) == 95.0
 
 
 def test_bollinger_next_reversion_sells_after_previous_upper_break():
@@ -82,6 +83,15 @@ def test_bollinger_next_reversion_sells_after_previous_upper_break():
     obs = _bollinger_next_obs(previous_close=130.0)
 
     assert strategy.decide(obs) == Action.SELL
+    assert strategy.execution_price(obs, Action.SELL) == 120.0
+
+
+def test_bollinger_next_reversion_uses_band_price_only_for_entries():
+    strategy = BollingerNextBarReversionStrategy()
+    obs = _bollinger_next_obs(previous_close=90.0)
+
+    assert strategy.execution_price(obs, Action.CLOSE) is None
+    assert strategy.execution_price(obs, Action.HOLD) is None
 
 
 def test_bollinger_next_reversion_takes_profit_when_position_is_profitable():

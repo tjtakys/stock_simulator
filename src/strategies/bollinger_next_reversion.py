@@ -38,6 +38,21 @@ class BollingerNextBarReversionStrategy(Strategy):
             return Action.SELL
         return Action.HOLD
 
+    def execution_price(self, obs: dict, action: Action) -> float | None:
+        if action not in {Action.BUY, Action.SELL}:
+            return None
+
+        minute = obs["minute_bars"]
+        if len(minute) < self.min_bars + 1:
+            return None
+
+        previous = minute.iloc[-2]
+        if action == Action.BUY:
+            return _safe_float(previous.get("bb_lower_3"))
+        if action == Action.SELL:
+            return _safe_float(previous.get("bb_upper_3"))
+        return None
+
     def _exit_action(self, side: PositionSide, entry_price: float, price: float) -> Action:
         if entry_price <= 0:
             return Action.HOLD
