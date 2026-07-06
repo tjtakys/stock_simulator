@@ -48,6 +48,9 @@ def render_sidebar() -> dict:
     auto_trade = st.sidebar.checkbox("自動売買モード", value=False)
     strategy_labels = {
         "bollinger_next_reversion": "ボリンジャー3σ逆張り",
+        "vwap_ma_breakout": "VWAP + 移動平均ブレイクアウト",
+        "bollinger_reversion": "ボリンジャー逆張り",
+        "combined_rule": "複合ルール",
     }
     auto_strategy = st.sidebar.selectbox(
         "売買アルゴリズム",

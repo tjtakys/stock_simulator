@@ -61,7 +61,8 @@ def run_one_day(
     while True:
         action = strategy.decide(obs)
         approved_action, risk_reason = risk.approve(action, obs, quantity)
-        obs, reward, done, info = env.step(approved_action, quantity)
+        execution_price = strategy.execution_price(obs, approved_action) if approved_action == action else None
+        obs, reward, done, info = env.step(approved_action, quantity, execution_price=execution_price)
         equity_rows.append(
             {
                 "timestamp": obs["timestamp"],
