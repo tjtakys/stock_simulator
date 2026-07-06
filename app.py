@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
+import shutil
 import time
 
 import pandas as pd
@@ -19,6 +21,42 @@ from src.ui.sidebar import render_sidebar
 
 
 st.set_page_config(page_title="デイトレードシミュレーター", layout="wide")
+
+
+STARTUP_CACHE_DIR_NAMES = {"__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"}
+
+
+def _cleanup_startup_caches(root: Path | None = None) -> list[Path]:
+    project_root = root or Path(__file__).resolve().parent
+    removed: list[Path] = []
+
+    for path in project_root.rglob("*"):
+        if not path.is_dir() or path.name not in STARTUP_CACHE_DIR_NAMES:
+            continue
+        try:
+            shutil.rmtree(path)
+        except OSError:
+            continue
+        removed.append(path)
+
+    for name in STARTUP_CACHE_DIR_NAMES - {"__pycache__"}:
+        path = project_root / name
+        if not path.is_dir():
+            continue
+        try:
+            shutil.rmtree(path)
+        except OSError:
+            continue
+        removed.append(path)
+
+    return removed
+
+
+def _cleanup_startup_caches_once() -> None:
+    if st.session_state.get("startup_cache_cleaned"):
+        return
+    _cleanup_startup_caches()
+    st.session_state.startup_cache_cleaned = True
 
 
 def _env_key(inputs: dict) -> tuple:
@@ -482,6 +520,7 @@ def _trades_display(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
+    _cleanup_startup_caches_once()
     ensure_project_dirs()
     inputs = render_sidebar()
     st.session_state.setdefault("is_playing", False)

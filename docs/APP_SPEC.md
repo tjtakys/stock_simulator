@@ -190,6 +190,7 @@ date,open,high,low,close,volume
 - 買い・空売り・決済が約定した場合、大きく目立つ約定バナーを表示する。
 - 売買画面の初期表示では9:00から開始し、左側に前日の日足ローソクを文脈として部分表示する。
 - Plotlyチャートは、アプリ側で指定したローソク足・出来高バーの色がStreamlitテーマで上書きされないよう、`st.plotly_chart(..., theme=None)` で描画する。
+- 起動時に `__pycache__`、`.pytest_cache`、`.ruff_cache`、`.mypy_cache` を自動削除し、古いPython/テスト/静的解析キャッシュの影響を避ける。株価CSVなどの `data/` キャッシュやバックテスト出力の `outputs/` は自動削除しない。
 
 ### 9.2 サイドバー
 
