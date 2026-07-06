@@ -4,6 +4,8 @@
 
 この文書は、現在のアプリを後からゼロから再作成するための仕様書です。以降で追加要望や仕様変更があった場合は、このファイルの該当セクションと末尾の変更履歴を必ず更新します。
 
+デイトレード手法モードの詳細仕様は、管理しやすさのため [daytrade_strategy_modes_spec_ja.md](daytrade_strategy_modes_spec_ja.md) に分離する。本書ではアプリ全体仕様と既存機能との接続点を扱う。
+
 ## 1. 目的
 
 過去の株価データを使い、デイトレードの練習とルールベース売買アルゴリズムの検証を行うローカルアプリを作る。
@@ -411,6 +413,17 @@ python run_backtest.py --symbol 285A --start 2026-06-01 --end 2026-06-30 --strat
 
 利用可能な戦略:
 
+- `combined_low_risk`
+- `combined_normal`
+- `combined_high_risk`
+- `element_vwap_cross`
+- `element_vwap_pullback`
+- `element_ma_cross`
+- `element_recent_high_breakout`
+- `element_previous_day_high_breakout`
+- `element_volume_breakout`
+- `element_bb3_reversal_short`
+- `element_bb3_take_profit`
 - `vwap_ma_breakout`
 - `bollinger_reversion`
 - `bollinger_next_reversion`
@@ -741,6 +754,12 @@ conda run -n sim python -m compileall app.py src
 16. Streamlitで起動確認する。
 
 ## 20. 変更履歴
+
+### 2026-07-06
+
+- デイトレード手法モード仕様を `docs/daytrade_strategy_modes_spec_ja.md` として分離管理する方針を追加。
+- 低リスク手法、通常手法、ややリスクあり手法と、要素別手法モード群を売買アルゴリズムとして選択できる仕様を追加。
+- 新手法モード向けに、分足MA75、出来高移動平均、出来高比率、直近5分出来高、30分平均出来高を計算する仕様を追加。
 
 ### 2026-07-04
 

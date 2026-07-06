@@ -2,6 +2,7 @@ import pandas as pd
 
 from src.indicators.bollinger import bollinger_bands
 from src.indicators.moving_average import moving_average
+from src.indicators.registry import add_minute_indicators
 from src.indicators.vwap import vwap
 
 
@@ -40,3 +41,21 @@ def test_bollinger_bands_return_expected_columns():
         "bb_lower_3",
     }
     assert result["bb_middle"].iloc[-1] == 2.5
+
+
+def test_add_minute_indicators_adds_volume_and_ma75_columns():
+    frame = pd.DataFrame(
+        {
+            "high": [11.0, 12.0, 13.0, 14.0, 15.0],
+            "low": [9.0, 10.0, 11.0, 12.0, 13.0],
+            "close": [10.0, 11.0, 12.0, 13.0, 14.0],
+            "volume": [100, 200, 300, 400, 500],
+        }
+    )
+
+    result = add_minute_indicators(frame)
+
+    assert {"ma_75", "volume_ma_5", "volume_ma_25", "volume_ratio_5_to_25", "recent_5min_volume"} <= set(
+        result.columns
+    )
+    assert result["recent_5min_volume"].iloc[-1] == 1500.0

@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from src.config import DEFAULT_INITIAL_CASH, DEFAULT_ORDER_QUANTITY, DEFAULT_SYMBOL, default_trading_date
+from src.strategies.daytrade_modes import DAYTRADE_MODE_LABELS
 
 
 def render_sidebar() -> dict:
@@ -47,6 +48,7 @@ def render_sidebar() -> dict:
     st.sidebar.subheader("自動売買")
     auto_trade = st.sidebar.checkbox("自動売買モード", value=False)
     strategy_labels = {
+        **DAYTRADE_MODE_LABELS,
         "bollinger_next_reversion": "ボリンジャー3σ逆張り",
         "vwap_ma_breakout": "VWAP + 移動平均ブレイクアウト",
         "bollinger_reversion": "ボリンジャー逆張り",
