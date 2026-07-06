@@ -17,12 +17,26 @@ streamlit run app.py
 
 ブラウザで `http://127.0.0.1:8501` を開きます。
 
+## トラブルシュート
+
+コード更新後に、最新版のはずなのに古い関数定義を参照するエラーが出る場合は、Streamlit の古いプロセスが残っている可能性があります。
+
+```bash
+pkill -f streamlit
+conda activate sim
+streamlit run app.py
+```
+
 ## 詳細
 
 機能、仕様、データ形式、再作成手順は [docs/APP_SPEC.md](docs/APP_SPEC.md) にまとめています。
+デイトレード手法モードの詳細は [docs/daytrade_strategy_modes_spec_ja.md](docs/daytrade_strategy_modes_spec_ja.md) に分けて管理しています。
 
 ## 売買戦略
 
+- 低リスク手法、通常手法、ややリスクあり手法
+- VWAP上抜け、VWAP反発、MAクロス、直近高値ブレイク、前日高値ブレイク
+- 出来高急増ブレイク
 - ボリンジャーバンド ±3σ での逆張り
 - VWAP と移動平均線を超えた場合の順張り
 - 空売りと買い戻し
