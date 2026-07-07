@@ -14,6 +14,7 @@ from src.strategies.daytrade_modes import (
     ElementVolumeBreakoutStrategy,
     ElementVwapCrossStrategy,
     ElementVwapPullbackStrategy,
+    MultiTimeframeBb3ReversionStrategy,
     StrategyConfig,
 )
 from src.strategies.manual import ManualStrategy
@@ -35,6 +36,7 @@ __all__ = [
     "ElementVwapCrossStrategy",
     "ElementVwapPullbackStrategy",
     "ManualStrategy",
+    "MultiTimeframeBb3ReversionStrategy",
     "Strategy",
     "StrategyConfig",
     "VwapMaBreakoutStrategy",

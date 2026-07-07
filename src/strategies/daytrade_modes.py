@@ -6,6 +6,7 @@ from datetime import time
 import pandas as pd
 
 from src.config import DEFAULT_INITIAL_CASH
+from src.indicators.bollinger import bollinger_bands
 from src.simulator.order import Action
 from src.simulator.position import PositionSide
 from src.strategies.base import Strategy
@@ -30,12 +31,12 @@ class StrategyConfig:
 
 LOW_RISK_CONFIG = StrategyConfig(
     mode="combined_low_risk",
-    stop_loss_pct=0.003,
-    take_profit_pct=0.005,
-    break_even_trigger_pct=0.004,
-    trailing_start_pct=0.005,
-    max_daily_loss_pct=0.005,
-    max_trades_per_day=3,
+    stop_loss_pct=0.004,
+    take_profit_pct=0.007,
+    break_even_trigger_pct=0.005,
+    trailing_start_pct=0.006,
+    max_daily_loss_pct=0.008,
+    max_trades_per_day=5,
     max_consecutive_losses=3,
     allow_short=False,
     allow_averaging_down=False,
@@ -43,12 +44,12 @@ LOW_RISK_CONFIG = StrategyConfig(
 
 NORMAL_CONFIG = StrategyConfig(
     mode="combined_normal",
-    stop_loss_pct=0.004,
-    take_profit_pct=0.008,
-    break_even_trigger_pct=0.005,
-    trailing_start_pct=0.006,
-    max_daily_loss_pct=0.010,
-    max_trades_per_day=5,
+    stop_loss_pct=0.005,
+    take_profit_pct=0.010,
+    break_even_trigger_pct=0.006,
+    trailing_start_pct=0.007,
+    max_daily_loss_pct=0.015,
+    max_trades_per_day=8,
     max_consecutive_losses=3,
     allow_short=False,
     allow_averaging_down=False,
@@ -56,14 +57,27 @@ NORMAL_CONFIG = StrategyConfig(
 
 HIGH_RISK_CONFIG = StrategyConfig(
     mode="combined_high_risk",
-    stop_loss_pct=0.005,
-    take_profit_pct=0.010,
-    break_even_trigger_pct=0.006,
-    trailing_start_pct=0.006,
-    max_daily_loss_pct=0.015,
-    max_trades_per_day=8,
+    stop_loss_pct=0.006,
+    take_profit_pct=0.014,
+    break_even_trigger_pct=0.008,
+    trailing_start_pct=0.008,
+    max_daily_loss_pct=0.020,
+    max_trades_per_day=12,
     max_consecutive_losses=3,
     allow_short=False,
+    allow_averaging_down=False,
+)
+
+MTF_BB3_REVERSION_CONFIG = StrategyConfig(
+    mode="multi_timeframe_bb3_reversion",
+    stop_loss_pct=0.005,
+    take_profit_pct=0.009,
+    break_even_trigger_pct=0.006,
+    trailing_start_pct=0.007,
+    max_daily_loss_pct=0.020,
+    max_trades_per_day=10,
+    max_consecutive_losses=3,
+    allow_short=True,
     allow_averaging_down=False,
 )
 
@@ -153,8 +167,16 @@ class StrategyContext:
         return _optional_float(self.current.get("bb_upper_2"))
 
     @property
+    def bb_lower_2(self) -> float | None:
+        return _optional_float(self.current.get("bb_lower_2"))
+
+    @property
     def bb_upper_3(self) -> float | None:
         return _optional_float(self.current.get("bb_upper_3"))
+
+    @property
+    def bb_lower_3(self) -> float | None:
+        return _optional_float(self.current.get("bb_lower_3"))
 
     @property
     def volume_ratio(self) -> float:
@@ -409,7 +431,7 @@ class CombinedHighRiskStrategy(DaytradeModeStrategy):
     def _entry_action(self, ctx: StrategyContext) -> Action:
         if _volume_breakout_entry(ctx):
             return Action.BUY
-        if _previous_day_high_breakout_entry(ctx, min_volume_ratio=1.5):
+        if _previous_day_high_breakout_entry(ctx, min_volume_ratio=1.2):
             return Action.BUY
         if _bb2_momentum_entry(ctx):
             return Action.BUY
@@ -419,6 +441,33 @@ class CombinedHighRiskStrategy(DaytradeModeStrategy):
 
     def _mode_specific_exit(self, ctx: StrategyContext) -> bool:
         return (ctx.vwap is not None and ctx.close < ctx.vwap) or ctx.close < _recent_low(ctx, 5)
+
+
+class MultiTimeframeBb3ReversionStrategy(DaytradeModeStrategy):
+    name = "multi_timeframe_bb3_reversion"
+    config = MTF_BB3_REVERSION_CONFIG
+    direction = "both"
+    risk_level = "normal"
+
+    def _can_enter(self, ctx: StrategyContext) -> bool:
+        return super()._can_enter(ctx) and len(ctx.minute) >= 20
+
+    def _entry_action(self, ctx: StrategyContext) -> Action:
+        signal = _multi_timeframe_bb3_signal(ctx)
+        if signal == "long":
+            return Action.BUY
+        if signal == "short" and self.config.allow_short:
+            return Action.SELL
+        return Action.HOLD
+
+    def _mode_specific_exit(self, ctx: StrategyContext) -> bool:
+        position = ctx.obs["position"]
+        signal = _multi_timeframe_bb3_signal(ctx, require_turn=False)
+        if position.side == PositionSide.LONG:
+            return signal == "short" or (ctx.vwap is not None and ctx.close >= ctx.vwap)
+        if position.side == PositionSide.SHORT:
+            return signal == "long" or (ctx.vwap is not None and ctx.close <= ctx.vwap)
+        return False
 
 
 DAYTRADE_MODE_STRATEGIES: dict[str, type[Strategy]] = {
@@ -435,21 +484,15 @@ DAYTRADE_MODE_STRATEGIES: dict[str, type[Strategy]] = {
         CombinedLowRiskStrategy,
         CombinedNormalStrategy,
         CombinedHighRiskStrategy,
+        MultiTimeframeBb3ReversionStrategy,
     ]
 }
 
 DAYTRADE_MODE_LABELS: dict[str, str] = {
-    "combined_low_risk": "低リスク手法",
-    "combined_normal": "通常手法",
-    "combined_high_risk": "ややリスクあり手法",
-    "element_vwap_pullback": "要素: VWAP反発買い",
-    "element_vwap_cross": "要素: VWAP上抜け買い",
-    "element_ma_cross": "要素: MA5/MA25上抜け買い",
-    "element_recent_high_breakout": "要素: 直近高値ブレイク買い",
-    "element_previous_day_high_breakout": "要素: 前日高値ブレイク買い",
-    "element_volume_breakout": "要素: 出来高急増ブレイク買い",
-    "element_bb3_take_profit": "要素: BB+3σ到達後の利確",
-    "element_bb3_reversal_short": "要素: BB+3σ逆張り売り",
+    "combined_low_risk": "押し目重視手法",
+    "combined_normal": "標準デイトレ手法",
+    "combined_high_risk": "積極ブレイク手法",
+    "multi_timeframe_bb3_reversion": "15/30/60分足 3σ逆張り",
 }
 
 
@@ -471,14 +514,14 @@ def _context(obs: dict) -> StrategyContext:
 def _vwap_pullback_entry(ctx: StrategyContext) -> bool:
     if not _has_values(ctx, "vwap", "ma_5", "ma_25"):
         return False
-    if not (ctx.close > float(ctx.vwap) and float(ctx.ma_5) > float(ctx.ma_25)):
+    if not (ctx.close > float(ctx.vwap) and float(ctx.ma_5) >= float(ctx.ma_25) * 0.998):
         return False
-    if not _ma_rising(ctx, "ma_25"):
+    if not (_ma_rising(ctx, "ma_25") or ctx.close > float(ctx.ma_5)):
         return False
-    if not _recent_day_high_update(ctx, minutes=30):
+    if not (_recent_day_high_update(ctx, minutes=45) or ctx.close > _previous_high(ctx, 10)):
         return False
-    pullback_level = min(float(ctx.vwap) * 1.002, float(ctx.ma_5) * 1.002)
-    return ctx.low <= pullback_level and ctx.close > _previous_high(ctx, 5) and ctx.volume_ratio >= 1.0
+    pullback_level = max(float(ctx.vwap) * 1.006, float(ctx.ma_5) * 1.006)
+    return ctx.low <= pullback_level and (ctx.close > _previous_high(ctx, 3) or ctx.close > float(ctx.ma_5)) and ctx.volume_ratio >= 0.7
 
 
 def _recent_high_breakout_entry(ctx: StrategyContext, *, minutes: int, min_volume_ratio: float) -> bool:
@@ -510,7 +553,7 @@ def _volume_breakout_entry(ctx: StrategyContext) -> bool:
     return (
         ctx.close > _previous_high(ctx, 15)
         and ctx.avg_30min_volume > 0
-        and ctx.recent_5min_volume > ctx.avg_30min_volume * 1.5
+        and ctx.recent_5min_volume > ctx.avg_30min_volume * 1.25
         and ctx.close > float(ctx.vwap)
         and float(ctx.ma_5) > float(ctx.ma_25)
     )
@@ -541,10 +584,52 @@ def _bb3_reversal_short_entry(ctx: StrategyContext) -> bool:
     )
 
 
+def _multi_timeframe_bb3_signal(ctx: StrategyContext, require_turn: bool = True) -> str | None:
+    if ctx.previous is None:
+        return None
+    previous_close = _as_float(ctx.previous.get("close"), ctx.close)
+    turn_long = not require_turn or ctx.close > ctx.open or ctx.close > previous_close
+    turn_short = not require_turn or ctx.close < ctx.open or ctx.close < previous_close
+
+    for minutes in [15, 30, 60]:
+        frame = _resampled_bollinger_frame(ctx.minute, minutes)
+        if len(frame) < 3:
+            continue
+        latest = frame.iloc[-1]
+        lower_3 = _optional_float(latest.get("bb_lower_3"))
+        upper_3 = _optional_float(latest.get("bb_upper_3"))
+        if lower_3 is None or upper_3 is None:
+            continue
+        stretched_lower = _as_float(latest.get("low"), ctx.low) < lower_3 or _as_float(latest.get("close"), ctx.close) < lower_3
+        stretched_upper = _as_float(latest.get("high"), ctx.high) > upper_3 or _as_float(latest.get("close"), ctx.close) > upper_3
+        if stretched_lower and turn_long:
+            return "long"
+        if stretched_upper and turn_short:
+            return "short"
+    return None
+
+
+def _resampled_bollinger_frame(minute: pd.DataFrame, interval_minutes: int) -> pd.DataFrame:
+    source = minute.copy().sort_values("timestamp")
+    source["timestamp"] = pd.to_datetime(source["timestamp"])
+    frame = (
+        source.set_index("timestamp")
+        .resample(f"{interval_minutes}min", origin="start_day")
+        .agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+        .dropna(subset=["open", "high", "low", "close"])
+    )
+    if frame.empty:
+        return frame
+    bands = bollinger_bands(frame["close"], 20)
+    for column in bands.columns:
+        frame[column] = bands[column]
+    return frame.reset_index()
+
+
 def _daily_filter(ctx: StrategyContext, level: str) -> bool:
     daily = ctx.daily
     if len(daily) < 2:
-        return False
+        return True
     previous_day = daily.iloc[-1]
     previous_close = _as_float(previous_day.get("close"), 0.0)
     daily_ma_25 = _as_float(previous_day.get("daily_ma_25"), 0.0)
@@ -557,21 +642,20 @@ def _daily_filter(ctx: StrategyContext, level: str) -> bool:
         return False
     if level == "low":
         return (
-            previous_close > daily_ma_25
-            and (daily_ma_5 >= daily_ma_25 or _daily_ma_rising(daily, "daily_ma_25"))
-            and previous_volume >= avg_volume_20 * 0.8
-            and current_open >= previous_close * 0.98
-            and current_open <= previous_close * 1.05
+            previous_close >= daily_ma_25 * 0.98
+            and (daily_ma_5 >= daily_ma_25 * 0.98 or _daily_ma_rising(daily, "daily_ma_25"))
+            and previous_volume >= avg_volume_20 * 0.5
+            and current_open >= previous_close * 0.96
             and current_open <= previous_close * 1.08
         )
     if level == "normal":
         return (
-            previous_close > daily_ma_25
-            and current_open >= previous_close * 0.97
-            and current_open <= previous_close * 1.08
-            and previous_volume >= avg_volume_20 * 0.7
+            previous_close >= daily_ma_25 * 0.95
+            and current_open >= previous_close * 0.95
+            and current_open <= previous_close * 1.15
+            and previous_volume >= avg_volume_20 * 0.4
         )
-    return current_open >= previous_close * 0.95 and current_open <= previous_close * 1.12 and previous_volume >= avg_volume_20 * 0.5
+    return current_open >= previous_close * 0.92 and current_open <= previous_close * 1.18 and previous_volume >= avg_volume_20 * 0.3
 
 
 def _fixed_stop_or_take_profit(ctx: StrategyContext, config: StrategyConfig) -> bool:

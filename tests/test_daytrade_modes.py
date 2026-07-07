@@ -7,7 +7,13 @@ import pandas as pd
 from src.simulator.order import Action
 from src.simulator.position import Position, PositionSide
 from src.strategies.base import get_strategy
-from src.strategies.daytrade_modes import CombinedLowRiskStrategy, ElementBb3ReversalShortStrategy
+from src.strategies.daytrade_modes import (
+    CombinedHighRiskStrategy,
+    CombinedLowRiskStrategy,
+    CombinedNormalStrategy,
+    ElementBb3ReversalShortStrategy,
+    MultiTimeframeBb3ReversionStrategy,
+)
 
 
 def _daily_frame() -> pd.DataFrame:
@@ -69,9 +75,58 @@ def test_combined_low_risk_enters_on_vwap_pullback_setup():
 
 
 def test_combined_low_risk_stops_new_entries_after_max_trades():
-    fills = [{"action": "OPEN"}, {"action": "OPEN"}, {"action": "OPEN"}]
+    fills = [{"action": "OPEN"}] * 5
 
     assert CombinedLowRiskStrategy().decide(_low_risk_obs(fills=fills)) == Action.HOLD
+
+
+def test_combined_normal_allows_large_gap_previous_day_breakout():
+    obs = _low_risk_obs()
+    daily = obs["daily_bars"].copy()
+    daily.loc[daily.index[-1], ["high", "close", "volume", "daily_ma_5", "daily_ma_25", "daily_volume_ma_20"]] = [
+        112.0,
+        100.0,
+        1200,
+        99.0,
+        98.0,
+        1000.0,
+    ]
+    minute = obs["minute_bars"].copy()
+    minute.loc[0, "open"] = 114.0
+    minute.loc[minute.index[-1], ["open", "high", "low", "close", "vwap", "ma_5", "ma_25", "volume_ratio_5_to_25"]] = [
+        115.0,
+        117.0,
+        114.0,
+        116.0,
+        110.0,
+        114.0,
+        113.0,
+        1.2,
+    ]
+    obs["daily_bars"] = daily
+    obs["minute_bars"] = minute
+    obs["current_price"] = 116.0
+
+    assert CombinedNormalStrategy().decide(obs) == Action.BUY
+
+
+def test_combined_high_risk_previous_day_breakout_uses_relaxed_volume_threshold():
+    obs = _low_risk_obs()
+    minute = obs["minute_bars"].copy()
+    minute.loc[minute.index[-1], ["open", "high", "low", "close", "vwap", "ma_5", "ma_25", "volume_ratio_5_to_25"]] = [
+        115.0,
+        117.0,
+        114.0,
+        116.0,
+        110.0,
+        114.0,
+        113.0,
+        1.2,
+    ]
+    obs["minute_bars"] = minute
+    obs["current_price"] = 116.0
+
+    assert CombinedHighRiskStrategy().decide(obs) == Action.BUY
 
 
 def test_daytrade_mode_force_exits_after_1450():
@@ -97,6 +152,40 @@ def test_element_bb3_reversal_short_sells_only_overheated_reversal():
     obs["current_price"] = 120.0
 
     assert ElementBb3ReversalShortStrategy().decide(obs) == Action.SELL
+
+
+def test_multi_timeframe_bb3_reversion_buys_lower_3sigma_dislocation():
+    count = 300
+    minute = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-06-24 09:05:00", periods=count, freq="min"),
+            "open": [100.0] * count,
+            "high": [101.0] * count,
+            "low": [99.0] * (count - 1) + [90.0],
+            "close": [100.0] * (count - 2) + [99.0, 101.0],
+            "volume": [1000] * count,
+            "vwap": [100.0] * count,
+            "ma_5": [100.0] * count,
+            "ma_25": [100.0] * count,
+            "volume_ratio_5_to_25": [1.0] * count,
+            "recent_5min_volume": [5000.0] * count,
+            "avg_30min_volume": [5000.0] * count,
+        }
+    )
+    obs = {
+        "timestamp": minute.iloc[-1]["timestamp"],
+        "current_price": 101.0,
+        "minute_bars": minute,
+        "daily_bars": _daily_frame(),
+        "position": Position(),
+        "fills": [],
+        "trades": [],
+        "realized_pnl": 0.0,
+        "unrealized_pnl": 0.0,
+        "initial_cash": 10_000_000.0,
+    }
+
+    assert MultiTimeframeBb3ReversionStrategy().decide(obs) == Action.BUY
 
 
 def test_get_strategy_returns_new_daytrade_mode():
