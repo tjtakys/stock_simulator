@@ -142,7 +142,7 @@ def _write_chart(
     daily: pd.DataFrame,
     trades: pd.DataFrame,
 ) -> Path:
-    chart_path = BACKTEST_CHARTS_DIR / f"{symbol}_{trading_date.isoformat()}_{strategy_name}_chart.html"
+    chart_path = BACKTEST_CHARTS_DIR / f"{symbol}_{trading_date.isoformat()}_{strategy_name}_chart.png"
     return write_trade_chart(
         chart_path,
         symbol=symbol,
