@@ -9,22 +9,24 @@ import pandas as pd
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.patches import Rectangle
 
-from src.indicators.registry import add_daily_indicators, add_minute_indicators
+from src.config import symbol_display_name
+from src.indicators.registry import add_minute_indicators
 
 
 UP_COLOR = "#dc2626"
 DOWN_COLOR = "#16a34a"
 DOJI_COLOR = "#64748b"
 TRADE_RULES = [
-    "1 IN Long: body breaks above VWAP/MA",
-    "2 IN Short: body breaks below VWAP/MA",
-    "3 OUT Long: opposite body break below VWAP/MA",
-    "4 OUT Short: opposite body break above VWAP/MA",
-    "5 OUT Stop loss",
-    "6 OUT Take profit",
-    "7 OUT Time/risk/trailing exit",
+    "1 買いIN: 実体がVWAP/MAを上抜け",
+    "2 空売りIN: 実体がVWAP/MAを下抜け",
+    "3 買いOUT: 実体がVWAP/MAを下抜け",
+    "4 空売りOUT: 実体がVWAP/MAを上抜け",
+    "5 OUT: 損切り",
+    "6 OUT: 利確",
+    "7 OUT: 時間/リスク/トレーリング",
 ]
 NORMAL_STOP_LOSS_PCT = 0.005
 NORMAL_TAKE_PROFIT_PCT = 0.010
@@ -40,17 +42,18 @@ def write_trade_chart(
     minute: pd.DataFrame,
     daily: pd.DataFrame,
     trades: pd.DataFrame,
+    symbol_name: str = "",
 ) -> Path:
+    del daily
     path.parent.mkdir(parents=True, exist_ok=True)
     minute_frame = add_minute_indicators(minute.sort_values("timestamp").reset_index(drop=True))
-    daily_frame = add_daily_indicators(daily.sort_values("date").reset_index(drop=True))
     _write_png_chart(
         path,
         symbol=symbol,
+        symbol_name=symbol_name,
         trading_date=trading_date,
         strategy_name=strategy_name,
         minute=minute_frame,
-        daily=daily_frame,
         fills=fills_from_trades(trades),
     )
     return path
@@ -92,12 +95,13 @@ def _write_png_chart(
     path: Path,
     *,
     symbol: str,
+    symbol_name: str,
     trading_date: str,
     strategy_name: str,
     minute: pd.DataFrame,
-    daily: pd.DataFrame,
     fills: list[dict],
 ) -> None:
+    _configure_japanese_fonts()
     frame = minute.copy().reset_index(drop=True)
     frame["timestamp"] = pd.to_datetime(frame["timestamp"])
     frame["chart_x"] = range(len(frame))
@@ -113,13 +117,15 @@ def _write_png_chart(
     fig.subplots_adjust(right=0.76)
     _draw_candles(price_ax, frame)
     _draw_indicators(price_ax, frame)
-    _draw_previous_day_lines(price_ax, daily)
     _draw_trade_markers(price_ax, frame, fills, strategy_name=strategy_name)
     _draw_rule_panel(price_ax)
     price_ax.legend(loc="upper left", ncols=4, fontsize=8, frameon=False)
     _draw_volume(volume_ax, frame)
     _format_axes(price_ax, volume_ax, frame)
-    price_ax.set_title(f"{symbol} {trading_date} {strategy_name}", loc="left", fontsize=14, pad=12)
+    _set_intraday_price_range(price_ax, frame)
+    title_name = symbol_name.strip() or symbol_display_name(symbol)
+    title_symbol = f"{symbol} {title_name}".strip()
+    price_ax.set_title(f"{title_symbol} {trading_date} {strategy_name}", loc="left", fontsize=14, pad=12)
     fig.savefig(path, dpi=160, bbox_inches="tight")
     plt.close(fig)
 
@@ -169,24 +175,15 @@ def _draw_indicators(ax: plt.Axes, frame: pd.DataFrame) -> None:
             ax.plot(frame["chart_x"], values, label=label, color=color, linestyle=linestyle, linewidth=linewidth)
 
 
-def _draw_previous_day_lines(ax: plt.Axes, daily: pd.DataFrame) -> None:
-    if daily.empty:
-        return
-    previous = daily.iloc[-1]
-    for column, label in [("high", "Prev High"), ("low", "Prev Low"), ("close", "Prev Close")]:
-        ax.axhline(float(previous[column]), color="#94a3b8", linestyle="--", linewidth=0.8)
-        ax.text(0.995, float(previous[column]), label, transform=ax.get_yaxis_transform(), ha="right", va="bottom", fontsize=8)
-
-
 def _draw_trade_markers(ax: plt.Axes, frame: pd.DataFrame, fills: list[dict], *, strategy_name: str) -> None:
     if not fills:
         return
     x_by_timestamp = {pd.Timestamp(row.timestamp): float(row.chart_x) for row in frame.itertuples(index=False)}
     marker_styles = {
-        ("OPEN", "LONG"): ("^", "#0f9d58", "Long In"),
-        ("CLOSE", "LONG"): ("o", "#2563eb", "Long Out"),
-        ("OPEN", "SHORT"): ("v", "#dc2626", "Short In"),
-        ("CLOSE", "SHORT"): ("D", "#f59e0b", "Short Out"),
+        ("OPEN", "LONG"): ("^", "#0f9d58", "買いIN"),
+        ("CLOSE", "LONG"): ("o", "#2563eb", "買いOUT"),
+        ("OPEN", "SHORT"): ("v", "#dc2626", "空売りIN"),
+        ("CLOSE", "SHORT"): ("D", "#f59e0b", "空売りOUT"),
     }
     labeled_keys: set[tuple[str, str]] = set()
     stacked_offsets: dict[tuple[pd.Timestamp, str], int] = {}
@@ -227,7 +224,7 @@ def _draw_rule_panel(ax: plt.Axes) -> None:
     ax.text(
         1.015,
         0.98,
-        "Trade rules\n" + "\n".join(TRADE_RULES),
+        "トレードルール\n" + "\n".join(TRADE_RULES),
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -280,7 +277,7 @@ def _annotate_exit_pnl(ax: plt.Axes, x_value: float, price: float, key: tuple[st
     dx, dy = _pnl_offset(key, slot)
     color = "#dc2626" if pnl >= 0 else "#16a34a"
     ax.annotate(
-        f"PnL {_format_signed_yen(pnl)}",
+        _format_signed_yen(pnl),
         xy=(x_value, price),
         xytext=(dx, dy),
         textcoords="offset points",
@@ -288,13 +285,6 @@ def _annotate_exit_pnl(ax: plt.Axes, x_value: float, price: float, key: tuple[st
         va="center",
         fontsize=6.8,
         color=color,
-        bbox={
-            "boxstyle": "round,pad=0.18",
-            "facecolor": "white",
-            "edgecolor": color,
-            "linewidth": 0.55,
-            "alpha": 0.94,
-        },
         clip_on=False,
         zorder=8,
     )
@@ -377,7 +367,7 @@ def _risk_thresholds(strategy_name: str) -> tuple[float, float]:
 
 
 def _format_signed_yen(value: float) -> str:
-    return f"{value:+,.0f}"
+    return f"{value:+,.0f}円"
 
 
 def _draw_volume(ax: plt.Axes, frame: pd.DataFrame) -> None:
@@ -391,15 +381,42 @@ def _format_axes(price_ax: plt.Axes, volume_ax: plt.Axes, frame: pd.DataFrame) -
         ax.grid(True, color="#e5e7eb", linewidth=0.7)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-    price_ax.set_ylabel("Price")
-    volume_ax.set_ylabel("Volume")
-    volume_ax.set_xlabel("Time")
+    price_ax.set_ylabel("価格")
+    volume_ax.set_ylabel("出来高")
+    volume_ax.set_xlabel("時刻")
     tick_count = min(10, len(frame))
     tick_indexes = sorted(set(round(i * (len(frame) - 1) / max(tick_count - 1, 1)) for i in range(tick_count)))
     volume_ax.set_xticks(tick_indexes)
     volume_ax.set_xticklabels(frame.loc[tick_indexes, "timestamp"].dt.strftime("%H:%M"), rotation=0)
     price_ax.margins(x=0.01)
     volume_ax.margins(x=0.01)
+
+
+def _set_intraday_price_range(ax: plt.Axes, frame: pd.DataFrame) -> None:
+    lows = pd.to_numeric(frame["low"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+    highs = pd.to_numeric(frame["high"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+    low = float(lows.min())
+    high = float(highs.max())
+    if not np.isfinite(low) or not np.isfinite(high):
+        return
+    span = max(high - low, high * 0.001, 1.0)
+    ax.set_ylim(low - span * 0.08, high + span * 0.08)
+
+
+def _configure_japanese_fonts() -> None:
+    preferred_fonts = [
+        "Hiragino Sans",
+        "Hiragino Maru Gothic Pro",
+        "Hiragino Kaku Gothic ProN",
+        "YuGothic",
+        "BIZ UDGothic",
+        "Arial Unicode MS",
+        "Osaka",
+    ]
+    available_fonts = {font.name for font in font_manager.fontManager.ttflist}
+    selected = next((font for font in preferred_fonts if font in available_fonts), "DejaVu Sans")
+    plt.rcParams["font.family"] = [selected]
+    plt.rcParams["axes.unicode_minus"] = False
 
 
 def _candle_color(open_price: float, close_price: float) -> str:

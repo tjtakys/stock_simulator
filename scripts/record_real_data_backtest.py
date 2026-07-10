@@ -73,6 +73,7 @@ def main() -> None:
     minute, daily = load_market_data(symbol, trading_date, generate_if_missing=False, data_source="yahoo")
     chart_path = _write_chart(
         symbol=symbol,
+        symbol_name=symbol_name,
         trading_date=trading_date,
         strategy_name=args.strategy,
         minute=minute,
@@ -136,6 +137,7 @@ def _write_outputs(
 def _write_chart(
     *,
     symbol: str,
+    symbol_name: str,
     trading_date: date,
     strategy_name: str,
     minute: pd.DataFrame,
@@ -146,6 +148,7 @@ def _write_chart(
     return write_trade_chart(
         chart_path,
         symbol=symbol,
+        symbol_name=symbol_name,
         trading_date=trading_date.isoformat(),
         strategy_name=strategy_name,
         minute=minute,

@@ -18,6 +18,8 @@ DEFAULT_SYMBOL = "285A"
 SYMBOL_NAMES = {
     "285A": "キオクシアホールディングス",
     "6976": "太陽誘電",
+    "6981": "村田製作所",
+    "8035": "東京エレクトロン",
 }
 DEFAULT_SYMBOL_NAME = SYMBOL_NAMES[DEFAULT_SYMBOL]
 DEFAULT_DATE = "2026-06-24"
