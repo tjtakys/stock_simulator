@@ -431,7 +431,20 @@ outputs/
   reports/
   trades/
   equity/
+docs/assets/backtests/
 ```
+
+実データ検証記録:
+
+```bash
+python scripts/record_real_data_backtest.py --symbol 6976 --date 2026-07-10 --strategy combined_normal --include-readme
+```
+
+- `record_real_data_backtest.py` はYahoo実データでバックテストを実行し、`docs/assets/backtests/`、`outputs/reports/`、`outputs/trades/`、`outputs/equity/` に生成物を保存する。
+- `docs/assets/backtests/` には、対象日の1分足ローソク足、出来高、VWAP、移動平均、ボリンジャーバンド、IN/OUTマーカーを含むHTMLチャートを保存する。約定がない場合、IN/OUTマーカーは表示されない。
+- 実データ検証の全記録は `docs/REAL_DATA_BACKTESTS.md` にMarkdown表として保存する。
+- READMEの `実データ検証成績` は、全記録のうち `README掲載` が `yes` の行だけを自動抽出して更新する。
+- 記録には、銘柄、検証日、当日の特徴、前日比、戦略、株数、損益、勝率、取引数、チャートへの相対リンク、HTMLレポートへの相対リンク、メモを残す。
 
 ## 14. 自動売買戦略仕様
 
@@ -718,7 +731,7 @@ conda run -n sim python -m compileall app.py src
 - `scripts/record_readme_demo.py` と `docs/assets/demo.gif` は、必要に応じてGIF版デモを再生成するための補助資産として残す。
 - デモ動画では、日足チャートで価格帯別出来高が多い重要価格ラインを決定する様子と、デイトレード画面で買い、60倍速での値動き確認、買い決済による利益確定までを伝える。
 - READMEには代表的な売買戦略候補を簡潔に記載する。
-- READMEには実データ検証成績の表を置く。表には銘柄、日付、当日の特徴、前日比、戦略、損益、勝率、メモを記録する。初期状態では空欄でよい。
+- READMEには実データ検証成績の表を置く。全記録は `docs/REAL_DATA_BACKTESTS.md` に残し、READMEには代表的な結果だけを自動抽出して掲載する。
 
 ## 18. 既知の制約
 
@@ -748,13 +761,19 @@ conda run -n sim python -m compileall app.py src
 9. `src/ui/` にStreamlitのサイドバー、操作ボタン、Plotlyチャート、重要価格ライン選択用チャートを実装する。
 10. `app.py` に起動時重要価格ライン設定フロー、デイトレード画面、約定バナー、自動再生を実装する。
 11. `src/strategies/` にルールベース戦略を実装する。
-12. `run_backtest.py` と `src/analysis/` にCLIバックテストとレポート出力を実装する。
+12. `run_backtest.py` と `src/analysis/` にCLIバックテスト、レポート出力、実データ検証記録のREADME抜粋更新を実装する。
 13. `tests/` に単体テストを追加する。
 14. `README.md` にセットアップ、使い方、注意事項、Codexを使って作成した旨を記載する。
 15. ruff、pytest、compileallを通す。
 16. Streamlitで起動確認する。
 
 ## 20. 変更履歴
+
+### 2026-07-10
+
+- 実データ検証を実行して `docs/REAL_DATA_BACKTESTS.md` に記録し、READMEには代表結果だけを自動抽出する補助スクリプトを追加。
+- 実データ検証記録に、当日の特徴、前日比、損益、勝率、取引数、HTMLレポートリンクを残す仕様を追加。
+- 実データ検証時に、IN/OUTマーカー付きの1分足チャートHTMLを `docs/assets/backtests/` に保存し、READMEからリンクできる仕様を追加。
 
 ### 2026-07-07
 

@@ -12,10 +12,12 @@ OUTPUTS_DIR = ROOT_DIR / "outputs"
 REPORTS_DIR = OUTPUTS_DIR / "reports"
 TRADES_DIR = OUTPUTS_DIR / "trades"
 EQUITY_DIR = OUTPUTS_DIR / "equity"
+BACKTEST_CHARTS_DIR = ROOT_DIR / "docs" / "assets" / "backtests"
 
 DEFAULT_SYMBOL = "285A"
 SYMBOL_NAMES = {
     "285A": "キオクシアホールディングス",
+    "6976": "太陽誘電",
 }
 DEFAULT_SYMBOL_NAME = SYMBOL_NAMES[DEFAULT_SYMBOL]
 DEFAULT_DATE = "2026-06-24"
@@ -69,5 +71,6 @@ def ensure_project_dirs() -> None:
         REPORTS_DIR,
         TRADES_DIR,
         EQUITY_DIR,
+        BACKTEST_CHARTS_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
