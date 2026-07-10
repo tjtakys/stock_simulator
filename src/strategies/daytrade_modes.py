@@ -20,7 +20,7 @@ class StrategyConfig:
     break_even_trigger_pct: float
     trailing_start_pct: float
     max_daily_loss_pct: float
-    max_trades_per_day: int
+    max_trades_per_day: int | None
     max_consecutive_losses: int
     allow_short: bool
     allow_averaging_down: bool
@@ -49,9 +49,9 @@ NORMAL_CONFIG = StrategyConfig(
     break_even_trigger_pct=0.006,
     trailing_start_pct=0.007,
     max_daily_loss_pct=0.015,
-    max_trades_per_day=8,
+    max_trades_per_day=None,
     max_consecutive_losses=3,
-    allow_short=False,
+    allow_short=True,
     allow_averaging_down=False,
 )
 
@@ -217,7 +217,7 @@ class DaytradeModeStrategy(Strategy):
             return False
         if not _entry_time_allowed(ctx.clock, self.config):
             return False
-        if _entry_count(obs) >= self.config.max_trades_per_day:
+        if self.config.max_trades_per_day is not None and _entry_count(obs) >= self.config.max_trades_per_day:
             return False
         if _consecutive_losses(obs) >= self.config.max_consecutive_losses:
             return False
@@ -405,19 +405,24 @@ class CombinedNormalStrategy(DaytradeModeStrategy):
     config = NORMAL_CONFIG
 
     def _can_enter(self, ctx: StrategyContext) -> bool:
-        return super()._can_enter(ctx) and _daily_filter(ctx, "normal")
+        return DaytradeModeStrategy._can_enter(self, ctx)
 
     def _entry_action(self, ctx: StrategyContext) -> Action:
-        if _vwap_pullback_entry(ctx):
+        signal = _body_break_signal(ctx)
+        if signal == "long":
             return Action.BUY
-        if _recent_high_breakout_entry(ctx, minutes=30, min_volume_ratio=1.2):
-            return Action.BUY
-        if _previous_day_high_breakout_entry(ctx, min_volume_ratio=1.2):
-            return Action.BUY
+        if signal == "short" and self.config.allow_short:
+            return Action.SELL
         return Action.HOLD
 
     def _mode_specific_exit(self, ctx: StrategyContext) -> bool:
-        return (ctx.vwap is not None and ctx.close < ctx.vwap) or (ctx.ma_5 is not None and ctx.close < ctx.ma_5)
+        position = ctx.obs["position"]
+        signal = _body_break_signal(ctx)
+        if position.side == PositionSide.LONG:
+            return signal == "short"
+        if position.side == PositionSide.SHORT:
+            return signal == "long"
+        return False
 
 
 class CombinedHighRiskStrategy(DaytradeModeStrategy):
@@ -509,6 +514,35 @@ def _context(obs: dict) -> StrategyContext:
         current=current,
         previous=previous,
     )
+
+
+def _body_break_signal(ctx: StrategyContext, *, threshold_pct: float = 0.0005) -> str | None:
+    if ctx.previous is None:
+        return None
+
+    current_body_low, current_body_high = _body_range(ctx.current)
+    previous_body_low, previous_body_high = _body_range(ctx.previous)
+    for column in ["vwap", "ma_5", "ma_25", "ma_75"]:
+        current_line = _optional_float(ctx.current.get(column))
+        previous_line = _optional_float(ctx.previous.get(column))
+        if current_line is None or previous_line is None:
+            continue
+        upper_break_level = current_line * (1.0 + threshold_pct)
+        previous_upper_level = previous_line * (1.0 + threshold_pct)
+        if current_body_low > upper_break_level and previous_body_low <= previous_upper_level:
+            return "long"
+
+        lower_break_level = current_line * (1.0 - threshold_pct)
+        previous_lower_level = previous_line * (1.0 - threshold_pct)
+        if current_body_high < lower_break_level and previous_body_high >= previous_lower_level:
+            return "short"
+    return None
+
+
+def _body_range(bar: pd.Series) -> tuple[float, float]:
+    open_price = _as_float(bar.get("open"), _as_float(bar.get("close"), 0.0))
+    close_price = _as_float(bar.get("close"), open_price)
+    return min(open_price, close_price), max(open_price, close_price)
 
 
 def _vwap_pullback_entry(ctx: StrategyContext) -> bool:

@@ -8,7 +8,7 @@
 
 デイトレードは短時間で損益が大きく変動しやすく、特に信用取引・レバレッジ・過度な売買回数は損失リスクを高める。そのため、本システムでは以下を最優先する。
 
-- 取引回数を制限する
+- 取引回数と損失を監視する
 - 損切りを必ず設定する
 - 1回あたりの損失を小さくする
 - 1日の最大損失に達したら停止する
@@ -42,15 +42,15 @@
 
 ### 1.2 通常手法モード
 
-低リスク手法よりも少し積極的に、ブレイクアウトや出来高急増を取りにいくモード。
+VWAPまたは分足移動平均線の明確な実体抜けを、買いと空売りの両方向で検証するモード。
 
 特徴：
 
-- 買い専用を基本とする
-- VWAP上での高値ブレイクを狙う
-- 押し目買いだけでなく、順張りブレイクも許可する
+- 買いと空売りをどちらも通常の選択肢として使う
+- VWAP、MA5、MA25、MA75のいずれかをローソク足の実体が明確に上抜けたら買う
+- VWAP、MA5、MA25、MA75のいずれかをローソク足の実体が明確に下抜けたら空売りする
 - 損切りは必須
-- 取引回数は中程度
+- 取引回数に上限は設けない
 
 ### 1.3 ややリスクのある手法モード
 
@@ -238,7 +238,7 @@ max_trades_per_day = 5
 通常モード：
 
 ```text
-max_trades_per_day = 8
+max_trades_per_day = None  # 制限なし
 ```
 
 ややリスクありモード：
@@ -389,7 +389,8 @@ or take_profit
 
 #### リスク評価
 
-通常。
+要素別検証用。
+現行の通常手法では、移動平均クロス単体ではなく、VWAP/移動平均線のローソク実体抜けを使う。
 
 ---
 
@@ -416,7 +417,8 @@ or current_time >= 14:50
 
 #### リスク評価
 
-通常〜やや高リスク。
+要素別検証用。
+現行の通常手法では、直近高値ブレイク単体ではなく、VWAP/移動平均線のローソク実体抜けを使う。
 
 ---
 
@@ -442,7 +444,8 @@ or take_profit
 
 #### リスク評価
 
-通常。
+要素別検証用。
+現行の通常手法では、前日高値ブレイク単体ではなく、VWAP/移動平均線のローソク実体抜けを使う。
 
 ---
 
@@ -622,41 +625,41 @@ allow_averaging_down = False
 
 ### 7.1 コンセプト
 
-VWAP上の押し目買いに加えて、直近高値ブレイク・前日高値ブレイクも狙う。
+VWAPまたは分足移動平均線を、ローソク足の実体で明確に抜けたタイミングを売買シグナルとして扱う。
+買いだけでなく空売りも通常の選択肢として使う。
+取引回数に上限は設けず、同じ条件が再発生すれば何度でも検証対象にする。
 
 ### 7.2 日足フィルター
 
 ```text
-previous_close >= DMA25 * 0.95
-current_open >= previous_close * 0.95
-current_open <= previous_close * 1.15
-previous_day_volume >= average_volume_20d * 0.4
+標準手法では日足フィルターを使わない。
+分足上のVWAP/移動平均線の実体抜けを優先する。
 ```
 
 ### 7.3 エントリー候補
 
-以下のいずれかを満たしたらエントリー候補。
+以下のいずれかを満たしたらエントリーする。
 
-#### A. VWAP反発買い
+#### A. 買いエントリー
 
-低リスクモードと同じ。
-
-#### B. 直近高値ブレイク
+現在の1分足のローソク実体全体が、VWAP、MA5、MA25、MA75のいずれかを明確に上抜けた場合に買う。
+明確な上抜けとは、現在足の実体下端が対象ラインより一定幅上にあり、直前足の実体下端はまだその条件を満たしていなかった状態を指す。
 
 ```text
-current_close > highest_high_last_30min
-current_close > VWAP
-MA5 > MA25
-volume_ratio_5_to_25 >= 1.2
+current_body_low > current_line * 1.0005
+previous_body_low <= previous_line * 1.0005
+line in [VWAP, MA5, MA25, MA75]
 ```
 
-#### C. 前日高値ブレイク
+#### B. 空売りエントリー
+
+現在の1分足のローソク実体全体が、VWAP、MA5、MA25、MA75のいずれかを明確に下抜けた場合に空売りする。
+明確な下抜けとは、現在足の実体上端が対象ラインより一定幅下にあり、直前足の実体上端はまだその条件を満たしていなかった状態を指す。
 
 ```text
-current_close > previous_day_high
-current_close > VWAP
-MA5 > MA25
-volume_ratio_5_to_25 >= 1.2
+current_body_high < current_line * 0.9995
+previous_body_high >= previous_line * 0.9995
+line in [VWAP, MA5, MA25, MA75]
 ```
 
 ### 7.4 決済条件
@@ -664,8 +667,8 @@ volume_ratio_5_to_25 >= 1.2
 ```text
 stop_loss = -0.5%
 take_profit = +1.0%
-VWAP割れで撤退
-MA5割れで利益確定または撤退
+買い建て中に明確な下抜けシグナルが出たら決済
+空売り建て中に明確な上抜けシグナルが出たら決済
 BB+3σ到達後に陰線で利確
 14:50で全決済
 ```
@@ -673,10 +676,10 @@ BB+3σ到達後に陰線で利確
 ### 7.5 リスク設定
 
 ```text
-max_trades_per_day = 8
+max_trades_per_day = None
 max_daily_loss_pct = 1.5%
 max_loss_per_trade_pct = 0.5%
-allow_short = False
+allow_short = True
 allow_averaging_down = False
 ```
 
@@ -931,7 +934,7 @@ python scripts/compare_strategies.py \
 最大ドローダウンが小さい
 平均損失が小さい
 連敗時の損失が限定されている
-取引回数が過剰でない
+標準手法では、回数上限なしでも過度な往復売買で損益が悪化していない
 特定の1日だけで利益が出ていない
 複数日・複数銘柄で再現性がある
 ```
@@ -994,7 +997,7 @@ class StrategyConfig:
     break_even_trigger_pct: float
     trailing_start_pct: float
     max_daily_loss_pct: float
-    max_trades_per_day: int
+    max_trades_per_day: int | None
     max_consecutive_losses: int
     allow_short: bool
     allow_averaging_down: bool
@@ -1034,9 +1037,9 @@ take_profit_pct: 0.010
 break_even_trigger_pct: 0.006
 trailing_start_pct: 0.007
 max_daily_loss_pct: 0.015
-max_trades_per_day: 8
+max_trades_per_day: null
 max_consecutive_losses: 3
-allow_short: false
+allow_short: true
 allow_averaging_down: false
 entry_start_time: "09:05"
 entry_end_time: "14:45"
@@ -1131,4 +1134,4 @@ paper tradingで安定動作を確認
 
 最初の本命は `combined_normal` と `combined_low_risk` の比較とする。
 
-`combined_low_risk` は、VWAPより上の強い銘柄で押し目を待ち、損失を小さく保ちながら再現性を検証する。`combined_normal` は、押し目に加えてブレイクも許可し、エントリー機会を増やす。`multi_timeframe_bb3_reversion` は、15分足・30分足・60分足の3σ超えを一時的な需給の乱れとして扱い、VWAP回帰を狙う逆張りモードとして検証する。
+`combined_low_risk` は、VWAPより上の強い銘柄で押し目を待ち、損失を小さく保ちながら再現性を検証する。`combined_normal` は、VWAPまたは分足移動平均線の明確なローソク実体抜けを買い・空売りの両方向で扱い、取引回数上限なしで順張り機会を検証する。`multi_timeframe_bb3_reversion` は、15分足・30分足・60分足の3σ超えを一時的な需給の乱れとして扱い、VWAP回帰を狙う逆張りモードとして検証する。

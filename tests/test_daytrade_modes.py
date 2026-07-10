@@ -80,32 +80,62 @@ def test_combined_low_risk_stops_new_entries_after_max_trades():
     assert CombinedLowRiskStrategy().decide(_low_risk_obs(fills=fills)) == Action.HOLD
 
 
-def test_combined_normal_allows_large_gap_previous_day_breakout():
+def test_combined_normal_buys_when_body_clearly_breaks_above_vwap():
     obs = _low_risk_obs()
-    daily = obs["daily_bars"].copy()
-    daily.loc[daily.index[-1], ["high", "close", "volume", "daily_ma_5", "daily_ma_25", "daily_volume_ma_20"]] = [
-        112.0,
-        100.0,
-        1200,
-        99.0,
-        98.0,
-        1000.0,
-    ]
     minute = obs["minute_bars"].copy()
-    minute.loc[0, "open"] = 114.0
-    minute.loc[minute.index[-1], ["open", "high", "low", "close", "vwap", "ma_5", "ma_25", "volume_ratio_5_to_25"]] = [
-        115.0,
-        117.0,
-        114.0,
-        116.0,
+    minute.loc[minute.index[-2], ["open", "close", "vwap", "ma_5", "ma_25", "ma_75"]] = [99.8, 100.1, 100.0, 110.0, 111.0, 112.0]
+    minute.loc[minute.index[-1], ["open", "high", "low", "close", "vwap", "ma_5", "ma_25", "ma_75"]] = [
+        100.2,
+        102.0,
+        100.2,
+        101.0,
+        100.0,
         110.0,
-        114.0,
-        113.0,
-        1.2,
+        111.0,
+        112.0,
     ]
-    obs["daily_bars"] = daily
     obs["minute_bars"] = minute
-    obs["current_price"] = 116.0
+    obs["current_price"] = 101.0
+
+    assert CombinedNormalStrategy().decide(obs) == Action.BUY
+
+
+def test_combined_normal_sells_when_body_clearly_breaks_below_ma():
+    obs = _low_risk_obs()
+    minute = obs["minute_bars"].copy()
+    minute.loc[minute.index[-2], ["open", "close", "vwap", "ma_5", "ma_25", "ma_75"]] = [105.1, 104.9, 100.0, 105.0, 110.0, 111.0]
+    minute.loc[minute.index[-1], ["open", "high", "low", "close", "vwap", "ma_5", "ma_25", "ma_75"]] = [
+        104.8,
+        104.8,
+        103.0,
+        103.5,
+        100.0,
+        105.0,
+        110.0,
+        111.0,
+    ]
+    obs["minute_bars"] = minute
+    obs["current_price"] = 103.5
+
+    assert CombinedNormalStrategy().decide(obs) == Action.SELL
+
+
+def test_combined_normal_does_not_limit_trade_count():
+    obs = _low_risk_obs(fills=[{"action": "OPEN"}] * 20)
+    minute = obs["minute_bars"].copy()
+    minute.loc[minute.index[-2], ["open", "close", "vwap", "ma_5", "ma_25", "ma_75"]] = [99.8, 100.1, 100.0, 110.0, 111.0, 112.0]
+    minute.loc[minute.index[-1], ["open", "high", "low", "close", "vwap", "ma_5", "ma_25", "ma_75"]] = [
+        100.2,
+        102.0,
+        100.2,
+        101.0,
+        100.0,
+        110.0,
+        111.0,
+        112.0,
+    ]
+    obs["minute_bars"] = minute
+    obs["current_price"] = 101.0
 
     assert CombinedNormalStrategy().decide(obs) == Action.BUY
 
