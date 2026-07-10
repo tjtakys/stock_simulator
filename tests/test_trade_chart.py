@@ -23,6 +23,7 @@ def test_fills_from_trades_builds_entry_and_exit_markers():
 
     assert fills == [
         {
+            "trade_number": 1,
             "timestamp": pd.Timestamp("2026-07-10 09:30:00"),
             "action": "OPEN",
             "side": "LONG",
@@ -30,10 +31,12 @@ def test_fills_from_trades_builds_entry_and_exit_markers():
             "price": 1000.0,
         },
         {
+            "trade_number": 1,
             "timestamp": pd.Timestamp("2026-07-10 10:00:00"),
             "action": "CLOSE",
             "side": "LONG",
             "quantity": 100,
+            "entry_price": 1000.0,
             "price": 1010.0,
             "pnl": 1000.0,
         },
