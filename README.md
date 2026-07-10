@@ -44,9 +44,9 @@ streamlit run app.py
 - 日足ボリンジャーバンド +3σ / -3σ 到達時の逆張り・利確
 - 一定以上の損失が出た場合のロスカット
 
-## 実データ検証成績
+## 実データを用いた自動売買成績
 
-全記録は [docs/REAL_DATA_BACKTESTS.md](docs/REAL_DATA_BACKTESTS.md) に保存します。READMEには代表的な結果だけを抜粋します。
+全記録は [docs/REAL_DATA_BACKTESTS.md](docs/REAL_DATA_BACKTESTS.md) に保存します。
 
 <!-- REAL_DATA_RESULTS_START -->
 | 銘柄 | 日付 | 当日の特徴 | 前日比 | 戦略 | 損益 | 勝率 | 取引数 | チャート | メモ |
