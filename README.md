@@ -33,23 +33,191 @@ streamlit run app.py
 デイトレード手法モードの詳細は [docs/daytrade_strategy_modes_spec_ja.md](docs/daytrade_strategy_modes_spec_ja.md) に分けて管理しています。
 Android版は [docs/ANDROID_APP_SPEC.md](docs/ANDROID_APP_SPEC.md) を正本として、`feature/android-app` ブランチで開発します。
 
-### Android版（開発中）
+## Android版を初めて動かす手順
 
-Android Emulatorから利用する場合は、先にモバイルAPIを起動します。
+ここでは、MacでAndroid開発をしたことがない人を対象に、必要なソフトのインストールからアプリの起動までを説明します。
+
+Android版は、次の2つを同時に動かします。
+
+1. Mac上で動くモバイルAPI。株価データとシミュレーションを担当します。
+2. Android Emulator上で動くAndroidアプリ。画面表示と操作を担当します。
+
+### 1. 必要なソフトをインストールする
+
+#### Miniconda
+
+Python環境の管理にMinicondaを使います。すでにターミナルの先頭に `(base)` または `(sim)` と表示されている場合は、インストール済みなので次へ進んでください。
+
+未導入の場合は、[Minicondaの公式ページ](https://docs.conda.io/projects/miniconda/en/latest/)からApple Silicon用のmacOSインストーラーを入手してインストールします。
+
+#### Android Studio
+
+[Android Studioの公式ページ](https://developer.android.com/studio)からmacOS版をダウンロードして、`Applications`フォルダーへインストールします。
+
+初回起動時は、次の設定を選びます。
+
+- Setup Type: `Standard`
+- Android SDK: インストールする
+- Android SDK Platform: API 35をインストールする
+- Android Virtual Device: インストールする
+- License Agreement: 内容を確認して同意する
+
+Android Studioに付属するJDK 17を利用するため、通常はJavaを別途インストールする必要はありません。
+
+### 2. このプロジェクトを準備する
+
+ターミナルを開き、プロジェクトのフォルダーへ移動します。
 
 ```bash
+cd /Users/tsujita/stock_simulator
+```
+
+初回だけ、Python環境を作成します。
+
+```bash
+conda env create -f environment.yml
+```
+
+すでに`sim`環境を作成済みの場合、上のコマンドは不要です。代わりに依存関係を更新できます。
+
+```bash
+conda activate sim
+pip install -r requirements.txt
+```
+
+### 3. Android Studioでプロジェクトを開く
+
+1. Android Studioを起動します。
+2. `Open`をクリックします。
+3. `/Users/tsujita/stock_simulator/android`を選択します。リポジトリ全体ではなく、`android`フォルダーを選びます。
+4. `Trust Project`が表示された場合は、内容を確認して信頼します。
+5. 画面下部の処理が終わるまで待ちます。初回はGradleやライブラリのダウンロードに時間がかかります。
+
+Android Studioで一度プロジェクトを開くと、通常は`android/local.properties`が自動作成されます。このファイルにはAndroid SDKの場所が記録されます。
+
+自動作成されなかった場合は、`android/local.properties`を作り、次の1行を記載します。
+
+```properties
+sdk.dir=/Users/tsujita/Library/Android/sdk
+```
+
+SDKを別の場所へインストールした場合は、その実際のパスを指定してください。`local.properties`はMacごとに異なる情報を含むため、Gitには追加しません。
+
+### 4. Android Emulatorを作る
+
+Android Studioで次の操作を行います。
+
+1. メニューから `Tools` → `Device Manager`を開きます。
+2. `Create Virtual Device`をクリックします。
+3. `Phone`からPixelシリーズの端末を1つ選び、`Next`をクリックします。
+4. API 35のシステムイメージを選びます。未導入の場合は、横にあるダウンロードボタンからインストールします。
+5. `Finish`をクリックします。
+6. Device Managerの再生ボタンを押し、Androidのホーム画面が表示されるまで待ちます。
+
+Apple Silicon搭載Macでは、可能なら`arm64-v8a`のシステムイメージを選びます。
+
+### 5. ターミナル1でモバイルAPIを起動する
+
+1つ目のターミナルで次を実行します。
+
+```bash
+cd /Users/tsujita/stock_simulator
 conda activate sim
 uvicorn mobile_api.main:app --reload
 ```
 
-別のターミナルでAndroidアプリをビルドします。Android SDKとJDK 17が必要です。
+次のように表示されれば成功です。
+
+```text
+Uvicorn running on http://127.0.0.1:8000
+Application startup complete.
+```
+
+このターミナルはアプリ使用中に閉じないでください。APIを終了するときは `Control + C`を押します。
+
+ブラウザで [http://127.0.0.1:8000/api/v1/health](http://127.0.0.1:8000/api/v1/health) を開き、次の内容が表示されればAPIは正常です。
+
+```json
+{"status":"ok","api_version":"1"}
+```
+
+### 6. Android Studioからアプリを起動する
+
+1. ターミナル1でAPIが動いていることを確認します。
+2. Android Studio上部の端末選択欄から、先ほど作成したEmulatorを選びます。
+3. 実行対象が`app`になっていることを確認します。
+4. 上部の緑色の再生ボタンをクリックします。
+5. ビルド完了後、Emulatorに`デイトレ練習`アプリが自動でインストールされて起動します。
+
+Android Emulator内からMacのAPIへ接続するときは、`127.0.0.1`ではなく専用アドレス`10.0.2.2`を使います。このアプリは初期状態で`http://10.0.2.2:8000/api/v1/`へ接続するよう設定済みです。
+
+アプリが開いたら、次の流れで動作を確認できます。
+
+1. `新しい練習を始める`を押します。
+2. 最初は`サンプル`データのままにします。
+3. 銘柄コード`285A`、対象日`2026-06-24`を使います。
+4. `データを読み込む`を押します。
+5. 必要なら重要価格ラインを入力し、`練習を開始`を押します。
+6. `1分進む`、`買い`、`空売り`、`全決済`などを操作します。
+
+### 7. ターミナルからAPKを作る場合
+
+Android Studioからアプリを起動できれば、この手順は必須ではありません。APKファイルだけを作りたい場合に使います。
+
+まずAndroid Studioを一度起動して、SDKとJDKのインストールを完了してください。その後、ターミナルで次を実行します。
 
 ```bash
-cd android
+cd /Users/tsujita/stock_simulator/android
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ./gradlew assembleDebug
 ```
 
-Android Studioで `android/` を開いて実行すると、Emulatorから `http://10.0.2.2:8000` のローカルAPIへ接続します。実機を使う場合は、開発用API接続先をPCのLANアドレスへ変更してください。
+成功すると、次の場所に開発用APKが作られます。
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Android版のよくあるエラー
+
+#### `SDK location not found`
+
+Android SDKの場所をGradleが見つけられていません。Android Studioで`android`フォルダーを一度開き、SDKのセットアップ完了を待ってください。
+
+改善しない場合は、次を確認します。
+
+```bash
+ls ~/Library/Android/sdk
+cat /Users/tsujita/stock_simulator/android/local.properties
+```
+
+`local.properties`がなければ、次の内容で作成します。
+
+```properties
+sdk.dir=/Users/tsujita/Library/Android/sdk
+```
+
+#### `JAVA_HOME is set to an invalid directory`または`No Java compiler found`
+
+Android Studio付属のJDKを指定します。
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+"$JAVA_HOME/bin/javac" -version
+```
+
+#### アプリに「サーバーに接続できません」と表示される
+
+- ターミナル1でUvicornが動いているか確認します。
+- ブラウザで`http://127.0.0.1:8000/api/v1/health`が開くか確認します。
+- Emulatorを使っているか確認します。実機では`10.0.2.2`を利用できません。
+- VPNやファイアウォールを一時的に確認します。
+
+#### 実機で動かしたい
+
+現在の初期設定はAndroid Emulator向けです。実機では`10.0.2.2`がMacを指さないため、MacのLAN内IPアドレスをAPI接続先へ設定し、UvicornをLANから接続可能な形で起動する必要があります。まずはEmulatorでの動作確認を推奨します。
+
+Android版の詳しい仕様と今後の実装項目は [docs/ANDROID_APP_SPEC.md](docs/ANDROID_APP_SPEC.md) を参照してください。
 
 ## 売買戦略
 
