@@ -23,3 +23,6 @@ dependencies:
       - ruff
       - mypy
       - yfinance
+      - fastapi
+      - uvicorn
+      - httpx

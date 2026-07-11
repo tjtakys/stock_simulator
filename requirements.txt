@@ -15,3 +15,6 @@ black
 ruff
 mypy
 yfinance
+fastapi
+uvicorn
+httpx

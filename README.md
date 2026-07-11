@@ -31,6 +31,25 @@ streamlit run app.py
 
 機能、仕様、データ形式、再作成手順は [docs/APP_SPEC.md](docs/APP_SPEC.md) にまとめています。
 デイトレード手法モードの詳細は [docs/daytrade_strategy_modes_spec_ja.md](docs/daytrade_strategy_modes_spec_ja.md) に分けて管理しています。
+Android版は [docs/ANDROID_APP_SPEC.md](docs/ANDROID_APP_SPEC.md) を正本として、`feature/android-app` ブランチで開発します。
+
+### Android版（開発中）
+
+Android Emulatorから利用する場合は、先にモバイルAPIを起動します。
+
+```bash
+conda activate sim
+uvicorn mobile_api.main:app --reload
+```
+
+別のターミナルでAndroidアプリをビルドします。Android SDKとJDK 17が必要です。
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+
+Android Studioで `android/` を開いて実行すると、Emulatorから `http://10.0.2.2:8000` のローカルAPIへ接続します。実機を使う場合は、開発用API接続先をPCのLANアドレスへ変更してください。
 
 ## 売買戦略
 
@@ -38,7 +57,6 @@ streamlit run app.py
 - 15分足、30分足、60分足のボリンジャーバンド ±3σ での逆張り
 - VWAP反発、直近高値ブレイク、前日高値ブレイク、出来高急増ブレイク
 - VWAP と移動平均線を超えた場合の順張り
-- 空売りと買い戻し
 - 日足の重要価格ラインを上抜けた場合の買い
 - 日足のレジスタンスライン接近時の余裕を持った売り
 - 日足ボリンジャーバンド +3σ / -3σ 到達時の逆張り・利確
